@@ -823,7 +823,7 @@ htmlTable(txtRound(tryOutput,3), align="ccccc",
 ```
 
 
-```{r Bayesian_Analysis_numberVisits_Ratio_Separate_Saturation, include=FALSE}
+```{r Bayesian_Analysis_numberVisits_Ratio_Separate_Saturation, include=FALSE,cache=TRUE}
 data.ratios <- read.csv('ratios_numberVisits_to_grouped.csv')
 names(data.ratios) <- c("ID","Sat","ratio")
 
@@ -917,6 +917,192 @@ by each subject in a given condition (low/high color saturation) to estimate the
 probability from S to S, and from G to G by using a Binomial model with a Beta(1,1) prior
 for the transition probability.
   
+
+```{r transition_diff, include=FALSE, cache=TRUE}
+# Load the functions used below:
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)  
+source("ModelTransitionDiff.R")
+# Load the data:
+data <- read.csv('dataInOneTable.csv')
+# Matrices that contain results for each subject
+
+output.single <- data.frame("ID"=ID_order, "diff" = c(1:9), "low CI" = c(1:9), 
+                    "high CI" = c(1:9), "prob." = c(1:9)  )
+
+output.grouped<-data.frame("ID"=ID_order, "diff" = c(1:9), "low CI" = c(1:9), 
+                    "high CI" = c(1:9), "prob." = c(1:9)  )
+
+counter = 1
+for (subject in ID_order){
+  data.subj <- data[data$IDs==subject,] 
+  data.subj = data.frame(data.subj$nTrial,data.subj$Tdata.perc,data.subj$Sat)
+  names(data.subj) = c("Trial","Percept","Sat")
+  # Keep only recorded percepts 
+  data.subj = data.subj[data.subj$Percept>0,]
+  # Seperate data by saturation.
+  dataHigh <- data.subj[data.subj$Sat==0.9,]
+  dataLow <-data.subj[data.subj$Sat==0.4,]
+  # transtion binary single-to-single
+  NAs <- rep(NA,10000)
+  
+  for (q in c(1:2)){
+    if (q==1){
+      # Deal with the data with high saturation level.
+      Data_trials <- split(dataHigh, dataHigh$Trial)
+    }else{
+      # Deal with the data with low saturation level.
+      Data_trials <- split(dataLow, dataLow$Trial)
+    }
+    
+    #Data_trials <- split(dataHigh, dataHigh$Trial)
+    nTrials <- length(Data_trials)
+    singleN <- 0
+    groupedN <- 0
+    #ssAll <- data.frame(transition=NAs)
+    #ggAll <- data.frame(transition=NAs)
+    ssAll <- NAs
+    ggAll <- NAs
+    # run through all trials and for each trial we need to find the transition
+    for (i in c(1:nTrials) ){
+      dataOneTrial <- Data_trials[[i]]
+      len <- length(dataOneTrial$Percept)
+      for (j in c(1:(len-1))){
+        #print(j)
+        curP <- dataOneTrial$Percept[j]
+        nextP <- dataOneTrial$Percept[j+1]
+        #print(curP)
+        #print(nextP)
+        if (curP==1 | curP==2){
+          singleN <- singleN +1
+          if (nextP==1 | nextP==2){
+           # ssAll$transition[singleN]<- 1
+            ssAll[singleN]<- 1
+          }else{
+            #ssAll$transition[singleN]<- 0
+            ssAll[singleN]<- 0
+          }
+        }else{
+          groupedN <- groupedN +1
+          if (nextP==3 | nextP==4){
+            #ggAll$transition[groupedN]<- 1
+            ggAll[groupedN]<- 1
+          }else{
+            #ggAll$transition[groupedN]<- 0
+            ggAll[groupedN]<- 0
+          }
+        }
+      }# end of go through one trial
+    } # end of the loop of all trials
+    
+    # Analyze the data of ssAll and ggAll
+    ssAll <- ssAll[c(1:singleN)]
+    ggAll <- ggAll[c(1:groupedN)]
+    
+    if (q==1){
+      ssAll.high<-ssAll
+      ggAll.high<-ggAll
+    }else{
+      ssAll.low<-ssAll
+      ggAll.low<-ggAll
+    }
+  } # end of q loop -- gone through two satuation loop.
+    ysingle<-c(ssAll.low, ssAll.high)
+    xsingle<-c(rep(0, length(ssAll.low)), rep(1, length(ssAll.high)))
+    combined.single<- data.frame(xsingle, ysingle)
+    
+     ygrouped<-c(ggAll.low, ggAll.high)
+     xgrouped<-c(rep(0, length(ggAll.low)), rep(1, length(ggAll.high)))
+     combined.grouped<- data.frame(xgrouped, ygrouped)
+    
+    # compute for single-to single
+    mcmcCoda_single = genMCMC( data=combined.single , xName="xsingle", yName="ysingle" ,numSavedSteps=500000)
+    
+    mcmcCoda_grouped = genMCMC( data = combined.grouped , xName="xgrouped", yName="ygrouped" ,numSavedSteps=500000)
+    
+      # compute probability for single to single
+  mcmcMat = as.matrix(mcmcCoda_single,chains=TRUE)
+  prob = sum(mcmcMat[,3]>0)/length(mcmcMat[,3])
+  
+  # final output for single to single
+  output.single[counter,] = c(subject, summary(mcmcCoda_single)$stat[2,1]
+                 ,summary(mcmcCoda_single)$quant[2,c(1,5)],  prob )
+  
+    # compute prob. for grouped to grouped.
+   mcmcMat = as.matrix(mcmcCoda_grouped,chains=TRUE)
+  prob = sum(mcmcMat[,3]>0)/length(mcmcMat[,3])
+  
+  # final output for grouped to grouped
+  output.grouped[counter,] = c(subject, summary(mcmcCoda_grouped)$stat[2,1]
+                 ,summary(mcmcCoda_grouped)$quant[2,c(1,5)],  prob )
+  
+  counter = counter + 1
+  
+  
+}# end of subject loop
+```
+
+The results of the change of transition on color saturation are listed in the table below.
+
+```{r results_diff_transition_in_table,  results="asis",echo=FALSE}
+#library(xtable)
+library(htmlTable)
+trySingle <- output.single
+trySingle$ID <- as.character(trySingle$ID)
+for (i in c(2:5)){
+  trySingle[,i] <- as.numeric(as.character(trySingle[,i]))
+}
+is.num <- sapply(trySingle, is.numeric)
+trySingle[is.num] <- lapply(trySingle[is.num], round,3)
+for (i in c(1:9)){
+  if( trySingle[i,5]>0.999){
+    trySingle[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  trySingle[,i]<- round(trySingle[,i], digits=3)
+}
+
+tryfused <- output.grouped
+tryfused$ID <- as.character(tryfused$ID) 
+for (i in c(2:5)){
+  tryfused[,i] <- as.numeric(as.character(tryfused[,i]))
+}
+is.num <- sapply(tryfused, is.numeric)
+tryfused[is.num] <- lapply(tryfused[is.num], round,3)
+for (i in c(1:9)){
+  if( tryfused[i,5]>0.999){
+    tryfused[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  tryfused[,i]<- round(tryfused[,i], digits=3)
+}
+resultsAll <- cbind(trySingle[1:5],tryfused[1:5])
+cgroup = c("single-to-single","grouped-to-grouped")
+n.cgroup = c(5, 5)
+#is.num <- sapply(resultsAll, is.numeric)
+#resultsAll[is.num] <- lapply(resultsAll[is.num], round,2)
+htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
+		  header=paste(c("ID", "<sup>a</sup>diff.", "low CI", "high CI ","prob.", "ID", "<sup>a</sup>diff.", "low CI", "high CI","prob."),"&nbsp;&nbsp; "),
+		  cgroup = cgroup,
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  n.cgroup = n.cgroup, 
+		  rnames=FALSE,
+		  caption="Effect of saturation level on transition",
+		  tfoot="<sup>a</sup>diff. = mean at saturation 0.9 - mean at saturation 0.4 ",
+		  ctable=TRUE)
+
+
+#xtable(resultsAll,digits=c(2,2,2,2,2,3, 0, 2, 2, 2,3))
+
+```
+
+
+  
+Analyze saperately.
+
 ```{r Bayesian_transition, include=FALSE, cache=TRUE}
 # Load the functions used below:
 source("DBDA2E-utilities.R") # Must be in R's current working directory.
@@ -1190,6 +1376,7 @@ ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) +
   ylab("Transition probability")+
  ggtitle("grouped to single-eye percetps ")
 ```
+
 As  color stararation increases, six out of nine subjects (ZK, AJ, ML, AB, MA and ZM) showed a significant decrease on the transition from  single-eye to single-eye percepts and rest of subjects showed very little difference;   five (ZK, AJ, ML, AB, ND) showed a significant increase on the transition from grouped to grouped percepts, two subjects had quite significant decrease on the transition. The result implies that  transitions to grouped percepts increases as the color saturation level increases.  
 
 
@@ -1338,6 +1525,7 @@ for (subject in levels(data$IDs)){
 
 
 ## The overlay of dominance duration distribution of single-eye percepts.
+
 ```{r overlayplot,echo=FALSE,out.width = '300px',out.height = '300px'}
 library(ggplot2)
 rescale.f = 1000000
