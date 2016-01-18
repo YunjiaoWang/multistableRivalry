@@ -124,7 +124,7 @@ ID_order <- as.vector(ID_order)
 
 ```
 
-```{r boxplot_ratios, echo=FALSE}
+```{r boxplot_ratios, echo=FALSE,warning=FALSE, message=FALSE}
 
 names(data.ratios)<- c("ID","Sat","ratio")
 
@@ -247,7 +247,54 @@ htmlTable(txtRound(tryOutput,3), align="ccccc",
 
 ```
 
-The following figure shows the means and 95% credibility intervals at each saturation level for each subject seperately. 
+The following figure shows the distributions of means at each saturation level for each subject seperately. 
+
+
+```{r Bayesian_Analysis_Predominance_Separate_Saturation_Distr, cache=TRUE, include=FALSE}
+data.ratios <- read.csv('fused_over_fusedNSingle_ratios.csv')
+names(data.ratios) <- c("ID","Sat","ratio")
+
+library(rjags)
+source("ModelDefLevel.R")
+
+outputData <- data.frame(ID=c(), Sat=c(), meanPar = c()  )
+
+for( subject in ID_order) {
+  
+  #Data for subject j, separated into two vectors for different saturations
+  data1 <- data.ratios[data.ratios$ID == subject, ]
+  y1.low <- data1[data1$Sat == 0.4,]
+  y1.high <- data1[data1$Sat == 0.9,]
+  for (j in c(1:2)){
+    if (j==1){
+    y1=y1.high$ratio
+    }else{
+     y1=y1.low$ratio
+    }
+    combined = data.frame(y1)
+  
+  #run a Bayesian model.  Details can be found ModelDefinitionT
+   mcmcCoda = genMCMC( data=combined, yName="y1" ,numSavedSteps=500000  )
+   mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+   meanBeta = mcmcMat[,2]
+  
+  
+    if (j==1){
+      newData<- data.frame(ID=rep(subject, length(mcmcMat[,2]) ), Sat=rep(0.9,    length(mcmcMat[,2])), meanPar = mcmcMat[,2])
+      
+      outputData <- rbind(outputData,newData)
+      
+    } else{
+     newData<- data.frame(ID=rep(subject, length(mcmcMat[,2]) ), Sat=rep(0.4,    length(mcmcMat[,2])), meanPar = mcmcMat[,2])
+      
+      outputData <- rbind(outputData,newData)
+     
+    }
+  } # end of j loop 
+}
+```
+
+
 
 
 ```{r Bayesian_Analysis_Ratio_Separate_Saturation, cache=TRUE, include=FALSE}
@@ -304,7 +351,7 @@ for( subject in ID_order) {
 The difference for five out of nine subjects
  are large while the effect for others are nearly negligible. 
 
-```{r result_bayesian_ratio_separate_sat_in_fig,results='asis',echo=FALSE}
+```{r result_bayesian_ratio_separate_sat_fig2,results='asis',echo=FALSE}
 library(ggplot2)
 
 outputHigh1 <- outputHigh
@@ -319,12 +366,12 @@ outputAll <- rbind(outputHigh1,outputLow1)
 
 outputAll$Sat <- as.factor(outputAll$Sat)
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
-  ylab("Ratios of Grouped percepts")
+  ylab("Predominance")
 
 ```
 
@@ -535,25 +582,12 @@ htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
 
 
 
-```{r Grouped_perc_dom_duration_Bayesian_linear_fit_result_in_table,  results="asis", echo=FALSE}
-# Uncomment to report the results of the slope obtained using ordinary linear regression
-# kable(results.fuselm, digits = 4, format = "html")
 
-#tryfused <- results.fusedBayes
-#tryfused <- as.data.frame(tryfused)
-
-#for (i in c(2:5)){
-#  tryfused[,i] <- as.numeric(as.character(tryfused[,i]))
-#}
-
-#table.fused <- xtable(tryfused, digits=c(0, 2, 2, 2, 2, 2))
-#print(table.fused, type="html",include.rownames=FALSE)
-
-```
 
 The following figure shows the dominance duration of single-eye percepts and grouped percepts at each saturation level for each subject separately.
 
-```{r Dom_duration_Bayesian_separate_sat, cache=TRUE, include=FALSE}
+
+```{r Dom_duration_Bayesian_separate_sat2, cache=TRUE, include=FALSE}
 data <- read.csv('dataInOneTable.csv')
 #ID_order<-unique(data$IDs)
 # Factor for converting from microseconds to seconds
@@ -567,6 +601,9 @@ rescale.f = 1000000
 #source("ModelDefinitionT.R")
 source("ModelDefLevel.R")
 
+single_output<-data.frame(ID=c(),Sat=c(), meanPar=c())
+grouped_output<-data.frame(ID=c(),Sat=c(), meanPar=c())
+
 results.singleBayesHigh<-matrix(0,nrow=9,ncol=5)
 colnames(results.singleBayesHigh)<-c("ID","mean","low CI","high CI","Probability")
 results.singleBayesLow<-matrix(0,nrow=9,ncol=5)
@@ -576,7 +613,6 @@ results.fusedBayesHigh<-matrix(0,nrow=9,ncol=5)
 colnames(results.fusedBayesHigh)<-c("ID","mean","low CI","high CI","Probability")
 results.fusedBayesLow<-matrix(0,nrow=9,ncol=5)
 colnames(results.fusedBayesLow)<-c("ID","mean","low CI","high CI","Probability")
-
 
 i = 1
 
@@ -615,9 +651,26 @@ for( subject in ID_order) {
   if (j==1){
   results.singleBayesHigh[i,]<-c(subject,summary(mcmcCoda.single)$stat[1,1],summary(mcmcCoda.single)$quant[1,c(1,5)],prob.single)
   results.fusedBayesHigh[i,]<-c(subject,summary(mcmcCoda.fused)$stat[1,1],summary(mcmcCoda.fused)$quant[1,c(1,5)],prob.fused)
+  
+  Lsingle <- length(mcmcMat.single[,2])
+  newSingle <- data.frame(ID=rep(subject,Lsingle), Sat=rep(0.9, Lsingle),meanPar=mcmcMat.single[,2])
+  single_output <- rbind(single_output,newSingle)
+  
+  Lgrouped <- length(mcmcMat.fused[,2])
+  newGrouped <- data.frame(ID=rep(subject,Lgrouped), Sat=rep(0.9, Lgrouped),meanPar=mcmcMat.fused[,2])
+  grouped_output <- rbind(grouped_output,newGrouped)
+  
   }else{
      results.singleBayesLow[i,]<-c(subject,summary(mcmcCoda.single)$stat[1,1],summary(mcmcCoda.single)$quant[1,c(1,5)],prob.single)
   results.fusedBayesLow[i,]<-c(subject,summary(mcmcCoda.fused)$stat[1,1],summary(mcmcCoda.fused)$quant[1,c(1,5)],prob.fused)
+  
+  Lsingle <- length(mcmcMat.single[,2])
+  newSingle <- data.frame(ID=rep(subject,Lsingle), Sat=rep(0.4, Lsingle),meanPar=mcmcMat.single[,2])
+  single_output <- rbind(single_output,newSingle)
+  
+  Lgrouped <- length(mcmcMat.fused[,2])
+  newGrouped <- data.frame(ID=rep(subject,Lgrouped), Sat=rep(0.4, Lgrouped),meanPar=mcmcMat.fused[,2])
+  grouped_output <- rbind(grouped_output,newGrouped)
   }
   } # the end of j loop
   
@@ -628,9 +681,13 @@ for( subject in ID_order) {
 
 ```
 
+
+
+
+
 The following figure shows the single-eye dominance durations at  different color saturations.
 
-```{r single_dom_dur_Bayesian_Separate_Sat_result_in_fig, echo=FALSE}
+```{r single_dom_dur_Bayesian_Separate_Sat_result_in_fig2, echo=FALSE}
 library(ggplot2)
 
 outputHigh <- as.data.frame( results.singleBayesHigh)
@@ -648,13 +705,14 @@ outputAll <- rbind(outputHigh,outputLow)
 outputAll$Sat <- as.factor(outputAll$Sat)
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill=Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+ theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
   ylab("Dominance duration")+
- ggtitle("Single eye percepts")
+ ggtitle("Single-eye perc.")
 
 ```
 
@@ -681,13 +739,18 @@ outputAll$Sat <- as.factor(outputAll$Sat)
 
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+#ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+ # geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+  #geom_line(aes(group=Sat, colour=Sat)) +
+#  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill=Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
   ylab("Dominance duration")+
- ggtitle("Grouped percepts")
+ ggtitle("Grouped perc.")
 
 ```
 
@@ -835,6 +898,8 @@ prob = c(1:9)
 
 i = 1
 
+outputData<-data.frame(ID=c(),Sat=c(), meanPar=c())
+
 outputHigh <- data.frame("ID"=ID_order, "mean" = c(1:9), "low CI" = c(1:9), 
                      "high CI" = c(1:9), "probability" = c(1:9)  )
 outputLow <- data.frame("ID"=ID_order, "mean" = c(1:9), "low CI" = c(1:9), 
@@ -859,18 +924,27 @@ for( subject in ID_order) {
   #run a Bayesian model.  Details can be found ModelDefinitionT
     mcmcCoda = genMCMC( data=combined, yName="y1" ,numSavedSteps=500000  )
     
+     mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+ 
   
     if (j==1){
      outputHigh[i,] = c(subject, summary(mcmcCoda)$stat[1,1],summary(mcmcCoda)$quant[1,c(1,5)], prob[i])
+      Len <- length(mcmcMat[,2])
+      newData <- data.frame(ID=rep(subject,Len), Sat=rep(0.9, Len),meanPar=mcmcMat[,2])
+      outputData <- rbind(outputData,newData)
+  
     } else{
      outputLow[i,] = c(subject, summary(mcmcCoda)$stat[1,1],summary(mcmcCoda)$quant[1,c(1,5)], prob[i])
-     #MeanSdPlotLow[i,] <- c(subject,summary(mcmcCoda)$stat[1,c(1,2)])
+     Len <- length(mcmcMat[,2])
+      newData <- data.frame(ID=rep(subject,Len), Sat=rep(0.4, Len),meanPar=mcmcMat[,2])
+      outputData <- rbind(outputData,newData)
     }
   } # end of j loop 
   i = i+1
   
 }
 ```
+
 
 The results are shown in the following figure. The analysis
 is consistent with the result of predominance: the subjects ZK, AJ, ML  and AB, and to a lesser degree MA, show a consistent increases in the number of visits to grouped percepts. 
@@ -894,12 +968,18 @@ outputAll <- rbind(outputHigh1,outputLow1)
 
 outputAll$Sat <- as.factor(outputAll$Sat)
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+#ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+ # geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+  #geom_line(aes(group=Sat, colour=Sat)) +
+ # geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill=Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
-  ylab("Ratios of Grouped percepts")
+  ylab("Ratios of number of visits")+
+  ggtitle("Grouped perc.")
 
 ```
 
@@ -1107,12 +1187,14 @@ Analyze saperately.
 # Load the functions used below:
 source("DBDA2E-utilities.R") # Must be in R's current working directory.
 
-source("test-fun.R")
 require(rjags)  
 source("ModelDefinitionTransition.R")
 # Load the data:
 data <- read.csv('dataInOneTable.csv')
 # Matrices that contain results for each subject
+
+output_single <- data.frame(ID=c(), Sat=c(), meanPar=c())
+output_grouped <- data.frame(ID=c(), Sat=c(), meanPar=c())
 
 results.singleBayesHigh<-matrix(0,nrow=9,ncol=4)
 colnames(results.singleBayesHigh)<-c("ID","mean","low CI","high CI")
@@ -1125,8 +1207,8 @@ results.fusedBayesLow<-matrix(0,nrow=9,ncol=4)
 colnames(results.fusedBayesLow)<-c("ID","mean","low CI","high CI")
 
 counter = 1
-for (ID in levels(data$IDs)){
-  data.subj <- data[data$IDs==ID,] 
+for (subject in levels(data$IDs)){
+  data.subj <- data[data$IDs==subject,] 
   data.subj = data.frame(data.subj$nTrial,data.subj$Tdata.perc,data.subj$Sat)
   names(data.subj) = c("Trial","Percept","Sat")
   # Keep only recorded percepts 
@@ -1186,17 +1268,39 @@ for (ID in levels(data$IDs)){
     
     mcmcCoda_single = genMCMC( data=ssAll ,  yName="transition" ,numSavedSteps=20000)
     mcmcCoda_grouped = genMCMC( data = ggAll ,  yName="transition" ,numSavedSteps=20000)
+   
+    mcmcMat_single = as.matrix(mcmcCoda_single,chains=TRUE)
+    mcmcMat_grouped = as.matrix(mcmcCoda_grouped,chains=TRUE)
     if (q==1){
-      results.singleBayesHigh[counter,]<-c(ID,summary(mcmcCoda_single)$stat[1],summary(mcmcCoda_single)$quant[c(1,5)])
-      results.fusedBayesHigh[counter,]<-c(ID,summary(mcmcCoda_grouped)$stat[1],summary(mcmcCoda_grouped)$quant[c(1,5)])
+      results.singleBayesHigh[counter,]<-c(subject,summary(mcmcCoda_single)$stat[1],summary(mcmcCoda_single)$quant[c(1,5)])
+      results.fusedBayesHigh[counter,]<-c(subject,summary(mcmcCoda_grouped)$stat[1],summary(mcmcCoda_grouped)$quant[c(1,5)])
+           
+       Len <- length(mcmcMat_single[,2])
+       newData <- data.frame(ID=rep(subject, Len), Sat=rep(0.9, Len), meanPar=mcmcMat_single[,2])
+       output_single <- rbind(output_single,newData)
+       
+       Len <- length(mcmcMat_grouped[,2])
+       newData <- data.frame(ID=rep(subject, Len), Sat=rep(0.9, Len),     meanPar=mcmcMat_grouped[,2])
+       output_grouped <- rbind(output_grouped,newData)
+       
     }else{
-      results.singleBayesLow[counter,]<-c(ID,summary(mcmcCoda_single)$stat[1],summary(mcmcCoda_single)$quant[c(1,5)])
-      results.fusedBayesLow[counter,]<-c(ID,summary(mcmcCoda_grouped)$stat[1],summary(mcmcCoda_grouped)$quant[c(1,5)])
+      results.singleBayesLow[counter,]<-c(subject,summary(mcmcCoda_single)$stat[1],summary(mcmcCoda_single)$quant[c(1,5)])
+      results.fusedBayesLow[counter,]<-c(subject,summary(mcmcCoda_grouped)$stat[1],summary(mcmcCoda_grouped)$quant[c(1,5)])
+      
+       Len <- length(mcmcMat_single[,2])
+       newData <- data.frame(ID=rep(subject, Len), Sat=rep(0.4, Len), meanPar=mcmcMat_single[,2])
+       output_single <- rbind(output_single,newData)
+       
+       Len <- length(mcmcMat_grouped[,2])
+       newData <- data.frame(ID=rep(subject, Len), Sat=rep(0.4, Len),     meanPar=mcmcMat_grouped[,2])
+       output_grouped <- rbind(output_grouped,newData)
     }
   }# end of the loop of the two saturation level
   counter = counter + 1
 }# end of ID loop
 ```
+
+
 
 ```{r transition_table_latex, include=FALSE}
 library(xtable)
@@ -1313,12 +1417,17 @@ outputAll <- rbind(outputHigh,outputLow)
 outputAll$Sat <- as.factor(outputAll$Sat)
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+# ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+#   geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+#   #geom_line(aes(group=Sat, colour=Sat)) +
+#   geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill = Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
-  ylab("Transition probability")+
+  ylab("Transition prob.")+
  ggtitle("Single-eye to single-eye ")
 
 # plot single-eye to grouped percepts
@@ -1328,13 +1437,18 @@ high.CI <- 1- outputAll$low.CI
 outputAll$high.CI <- high.CI
 outputAll$low.CI <- low.CI
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+# ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+#   geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+#   #geom_line(aes(group=Sat, colour=Sat)) +
+#   geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill = Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
-  ylab("Transition probability")+
- ggtitle("Single-eye to grouped percetps ")
+  ylab("Transition prob.")+
+ ggtitle("Single-eye to grouped perc. ")
 
 # grouped to grouped.
 outputHigh <- as.data.frame( results.fusedBayesHigh)
@@ -1352,13 +1466,18 @@ outputAll <- rbind(outputHigh,outputLow)
 outputAll$Sat <- as.factor(outputAll$Sat)
 outputAll$ID <- factor(outputAll$ID, levels=ID_order)
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+# ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+#   geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+#   #geom_line(aes(group=Sat, colour=Sat)) +
+#   geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill=Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
   xlab("Subject")+
-  ylab("Transition probability")+
- ggtitle("grouped to grouped percepts ")
+  ylab("Transition prob.")+
+ ggtitle("grouped to grouped perc. ")
 
 
 # plot grouped percepts to single-eye
@@ -1368,13 +1487,18 @@ high.CI <- 1- outputAll$low.CI
 outputAll$high.CI <- high.CI
 outputAll$low.CI <- low.CI
 
-ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
-  geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
-  geom_line(aes(group=Sat, colour=Sat)) +
-  geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
-  xlab("Subject")+
-  ylab("Transition probability")+
- ggtitle("grouped to single-eye percetps ")
+# ggplot(outputAll, aes(x=ID, y=mean,ymax=max(mean)*1.05)) + 
+#   geom_errorbar(aes(ymin=low.CI, ymax=high.CI, colour=Sat), width=.2, position=position_dodge(width=0.1)) +
+#   #geom_line(aes(group=Sat, colour=Sat)) +
+#   geom_point(size=3, aes(group=Sat, colour=Sat), position=position_dodge(width=0.1))+
+ggplot(outputAll, aes(x=ID, y=mean,fill=Sat)) + geom_bar(stat="identity",position=position_dodge(width=0.85))+
+  geom_errorbar(aes(ymin=low.CI, ymax=high.CI), width=.1, position=position_dodge(width=0.85)) +
+ theme(text = element_text(size=20), axis.text = element_text(size=16))+
+       # panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+   xlab("Subject")+
+  ylab("Transition prob.")+
+ ggtitle("Grouped to single-eye perc. ")
 ```
 
 As  color stararation increases, six out of nine subjects (ZK, AJ, ML, AB, MA and ZM) showed a significant decrease on the transition from  single-eye to single-eye percepts and rest of subjects showed very little difference;   five (ZK, AJ, ML, AB, ND) showed a significant increase on the transition from grouped to grouped percepts, two subjects had quite significant decrease on the transition. The result implies that  transitions to grouped percepts increases as the color saturation level increases.  
