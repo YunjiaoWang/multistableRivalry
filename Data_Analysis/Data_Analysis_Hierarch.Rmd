@@ -1,0 +1,1390 @@
+---
+title: "Binocular Rivalry Data Fitting"
+author: "Krešimir Josić,Yunjiao Wang, Alain Jacot-Guillarmod,
+Claudia Pedroza, Haluk Ogmen, Zachary Kilpatrick"
+date: "May 10, 2016"
+---
+
+## Description of experiments.
+Subjects viewed the stimulus depicted inthe figure below, each consisting of half a horizontal grating and half of a vertical grating.
+
+<img src="figures/inputpercept.jpeg" alt="Stimuli" height="300", width="400">
+
+In addition, grating halves were chosen randomly to be either red (HSV color space coordinates: 0.497, 0.4/0.9, 0.7) or green (120.23, 0.4/0.9, 0.7), but commensurate halves always had the same color. The stimulus was displayed on a grey background (0.0, 0.0, 0.2) and two unfilled squares and two horizontal and vertical lines were added on top of it in order to help the subject align the two images. Two different levels of saturation were used for each color, 0.4 and 0.9.
+
+One session was divided into six 3-minute  trials. Trials were separated by a 90-second resting period. To allow subjects time to adapt to the stimulus and form a stable percept,
+the first 30 seconds of each trial were not recorded. The association between color and orientation was kept the same within each session, but was randomized across sessions. For example, the vertical grating was red within a session, whereas the horizontal grating was always green. In contrast, saturation was randomized across trials, as was the position of the split gratings (left or right eye), to avoid any dominant eye effects. The randomization was such that within one session, each saturation level appeared in three trials and each grating positioning occurred in three trials.
+
+Each subject of nine subjects  was planned to participate in six total sessions three per orientation/color pairing: four subjects  finished 6 total sessions(AJ, MA, ZK, ND), three subjects finished
+5 sessions (FG, YW, ML), one subject finished 4 sessions (AB) and the remaing one finished 7 session (ZM). More specifically,
+
+* ZM:  a total of 42 trials and 21 trials at each saturations for each subject.
+* AJ, MA, ZK, ND:  a total of 36 trials and 18 trials at each saturations for each subject.
+* FG, YW, ML:  a total of 30 trials and 15 trials at each saturations for each subject.
+* AB:  a total of 24 trials and 12 trials at each saturations.
+
+
+The observers were asked to indicate dominance duration of four different percepts in the figure above by holding down four different buttons on a gamepad.
+Subjects were instructed to press button 1 if they perceive a single-eye percept (a percept composed of a vertical and horizontal part) with a red left half, button 2 for a stimulus with a red left half, button 3 for an  fused, entirely green percept, and button 4 for an  fused, entirely red percept. When the subjects perceived anything different from the four percepts, they were instructed not to press any button.
+
+
+
+## Description of the data
+
+The data is given in a single frame with several columns. The subject ID and
+trial number are listed first. Each trial has an associated color saturation value
+(0.4 or 0.9). Eact trial is also characterized by which color is associated with the 
+vertical direction.  For instance G_V means that the vertical bars are green. The last two columns
+list the percepts (Tdata.perc): 0 represents transition between two percepts, 1 represents percept 1, 2 represents percept 2 and so on.  and the duration of the percept (Tdata.duration) in microseconds, in the order
+reported by each subject.  
+
+```{r}
+data <- read.csv('dataInOneTable.csv')
+head(data)
+```
+
+From this we computed the  ratio of the total time, $T_{\rm grouped}$, that observers 
+reported a grouped percept out of the time they reported seeing a coherent 
+percept (Percepts 1, 2, 3 and 4) during each trial. We thus recorded for each trial, $i,$ of each subject,
+$$ratio(i) = \frac{T_{\rm grouped}(i)}{T_{\rm grouped}(i) + T_{\rm single}(i)}.$$
+ 
+
+
+```{r computing_ratios_grouped_percept_dominance, include=FALSE}
+# Load the functions used below:
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)               # Must have previously installed package rjags.
+
+#ADDED BY YUNJIAO: BEGINNING
+# loading data in csv file.
+dataInTable <- read.csv('dataInOneTable.csv')
+
+nTrials <- unique(dataInTable$nTrial)
+# set up a data frame to store dominance ratios (grouped/ (grouped + single))
+fused_over_fusedNSingle_ratios <- data.frame(IDs = c(), Sat =c(), ratios=c())
+Data_trials <- split(dataInTable, dataInTable$nTrial)
+
+for (i in nTrials){
+  data <- Data_trials[[i]]
+  fused <- subset(data, data$Tdata.perc ==3 | data$Tdata.perc ==4)
+  single <- subset(data, data$Tdata.perc ==1 | data$Tdata.perc ==2)
+  totalFused <- sum(fused$Tdata.duration)
+  totalSingle <- sum(single$Tdata.duration)
+  ratio <-  totalFused /(totalFused + totalSingle)
+  ID <- data$IDs[1]
+  Sat <- data$Sat[1]
+  newData <- data.frame(IDs = ID, Sat = Sat, Ratio = ratio)
+  fused_over_fusedNSingle_ratios <- rbind(fused_over_fusedNSingle_ratios,newData)
+}
+
+write.csv(fused_over_fusedNSingle_ratios, 'fused_over_fusedNSingle_ratios.csv',row.names=FALSE)
+#ADDED BY YUNJIAO: END
+
+ID_order1 <-c("ZK", "AJ", "ML", "AB", "MA", "ND", "ZM", "FG", "YW")
+```
+
+```{r demonstrate_data_Ratios}
+data.ratios <- read.csv('fused_over_fusedNSingle_ratios.csv') 
+names(data.ratios)<- c("ID","Sat","ratio")
+head(data.ratios)
+```
+
+In the following analysis we account for the subject and saturation factors, and pool data over all trials of the same subject.
+Thus the percept reported by pressing button 1 was always had a red left, and green right half, but the orientation (vertical or horizontal) of each half depended on the trial.
+
+## Predominance of grouped and single-eye percepts
+
+Predominance of a percept here means the fraction of time that the percept is perceived.
+We first check if there is a difference in the predominance of grouped percepts.
+Our hypothesis was that the predominance increases with saturation as the cue relating the two halves of the stimulus
+became stronger.
+
+We first present the ratios in each condition computed direclty from individual subject data.
+
+```{r boxplot_ratios, echo=FALSE,warning=FALSE, message=FALSE}
+
+
+names(data.ratios)<- c("ID","Sat","ratio")
+
+data.ratios$ID <- factor(data.ratios$ID, levels=ID_order1)
+#data.ratios$ID <- factor(data.ratios$ID)
+data.ratios$Sat <- factor(data.ratios$Sat)
+
+library(ggplot2)
+
+p = ggplot(data = data.ratios, aes(x = ID, y = ratio)) + 
+              geom_boxplot(aes(fill = Sat), width = 0.8) + theme_bw() +
+              ggtitle("Predominance of grouped percepts report for different Saturation")
+print(p)
+
+```
+
+The predominance of grouped states tends to increase for most
+observers. We next compute the probability to show that this increase is real.
+To do so, we partitioned trials based on the 
+color saturation level used for each trial, grouping across all other conditions. We analyzed
+changes in predominance using a linear Student-t regression model to account for skewness
+in the data. We included the condition (low/high color saturation) as a covariate and set
+the degrees of freedom of the t distribution to 4 to provide robust inference while avoiding
+computational difficulties often encountered when using a prior for the degrees of freedom
+(Fonseca et al., 2008). Prior distributions for the regression coeffcients were independent
+and normal with mean 0, and variance $10^4$. We estimated the mean difference in the fraction
+of time and its 95% credible interval (CI) and the probability that the difference is greater
+than 0.
+
+```{r computing_ratios,echo=FALSE,include=FALSE}
+rescale.f = 1000000
+
+# Load the functions used below:
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)               # Must have previously installed package rjags.
+
+# Load the data:
+dataInTable <- read.csv('dataInOneTable.csv')   # Read data file; must be in curr. work. dir.
+
+nTrials <- unique(dataInTable$nTrial)
+# set up a data frame to store dominance ratios (grouped/ (grouped + single))
+fused_over_fusedNSingle_ratios <- data.frame(IDs = c(), Sat =c(), ratios=c())
+Data_trials <- split(dataInTable, dataInTable$nTrial)
+
+data.ratios <- data.frame(IDs = c(), Sat =c(), ratios=c())
+
+for (i in nTrials){
+  data <- Data_trials[[i]]
+  fused <- subset(data, data$Tdata.perc ==3 | data$Tdata.perc ==4)
+  single <- subset(data, data$Tdata.perc ==1 | data$Tdata.perc ==2)
+  totalFused <- sum(fused$Tdata.duration)
+  totalSingle <- sum(single$Tdata.duration)
+  ratio <-  totalFused /(totalFused + totalSingle)
+  ID <- data$IDs[1]
+  Sat <- data$Sat[1]
+  newData <- data.frame(IDs = ID, Sat = Sat, Ratio = ratio)
+  data.ratios <- rbind(data.ratios,newData)
+}
+
+
+names(data.ratios)<- c("ID","Sat","ratio")
+
+#### End of computing ratios
+```
+
+```{r Predominance_linear_fit, include=FALSE,cache=TRUE}
+# 
+results.Bayes<-matrix(NA,nrow=9,ncol=3)
+colnames(results.Bayes)<-c("mean","loCI","upCI")
+diffmeans <- c(1:9)
+prob = c(1:9)
+data <- data.ratios
+data$ID <- as.numeric(data.ratios$ID) 
+#data$ID <- as.character(data.ratios$ID) 
+data$Sat <- sapply(data.ratios$Sat, function(x) if(x<0.5) {return(0)} else {return(1)})
+
+xName = "Sat"
+yName = "ratio"
+sName = "ID"
+
+# We first compute the difference between the ratios, and the probaibility
+# that it increases between conditions
+
+source("HierarchicalModel_Ratios.R")
+
+mcmcCoda = genMCMC.hierarchical( data=data , xName=xName , yName=yName , sName=sName ,
+                                 numSavedSteps=50000 , thinSteps=15 )
+
+
+
+mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
+IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
+output_ratiod_diff =  data.frame(IDs,summary(mcmcCoda)$stat[10:18,1],summary(mcmcCoda)$quant[10:18,c(1,5)], probabilities)
+names(output_ratiod_diff) <-c("ID","mean","lowCI", "highCI","prob.")
+```
+
+The results are presented in the table below.  The table suggests that this is a real effect for five subjects (ZK, AJ, ML, AB, MA). In these
+subjects, the fraction of time they perceive a grouped states goes up with probability higher than $0.9$.
+```{r result_bayesian_linear_fit_in_table, results="asis",echo=FALSE}
+library(htmlTable)
+output <-output_ratiod_diff
+output$ID<- as.character(output$ID)
+
+output <- output[match(ID_order1, output$ID),]
+is.num <- sapply(output, is.numeric)
+output[is.num] <- lapply(output[is.num], round,digits=3)
+for (i in c(1:9)){
+  if (output[i,5]>0.999){
+    output[i,5] <-0.999
+  }
+}
+
+for (i in c(2:4)){
+  output[,i]<- round(output[,i], digits=3)
+}
+
+
+htmlTable(txtRound(output,3), align="ccccc",
+		 header=paste(c("ID", "<sup>a</sup>diff.", "low CI", "high CI ", "prob."),"&nbsp;"),
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  #rowlabel="",
+		  rnames=FALSE,
+		  caption="Predominance",
+		  tfoot="<sup>a</sup>diff. = mean at saturation 0.9 - mean at saturation 0.4 ",
+		  ctable=TRUE)
+
+```
+
+
+
+Now compute the mean of the mean predominance of grouped percepts seperately in two different saturation levels.
+
+```{r  Predominance_Separate_Saturation_Distr, cache=TRUE, include=FALSE}
+
+# Next we compute the means ------------------------------------ 
+
+source("ModelMeans_hierarchical.R")
+
+#Split data across conditions
+
+y1.low <- data.ratios[data.ratios$Sat== 0.4,]
+y1.high <- data.ratios[data.ratios$Sat == 0.9,]
+
+
+outputData <- data.frame(ID=c(), Sat=c(), meanPar = c()  )
+
+yName = "ratio"
+sName = "ID"
+
+#Fit to a t distribution - high.  Details can be found in ModelMeans_hierarchical
+mcmc_means_low = genMCMC( data=y1.low, yName=yName , sName=sName ,numSavedSteps=500000  )
+mcmc_means_high = genMCMC( data=y1.high, yName=yName , sName=sName ,numSavedSteps=500000  )
+
+mcmcMat = as.matrix(mcmc_means_low,chains=TRUE)
+probabilities = apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
+IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
+output_means_low =  data.frame(IDs,summary(mcmc_means_low)$stat[1:9,1],summary(mcmc_means_low)$quant[1:9,c(1,5)],probabilities)
+
+names(output_means_low)<-c("ID","mean","lowCI", "highCI","prob")
+
+mcmcMat = as.matrix(mcmc_means_high,chains=TRUE)
+probabilities = apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
+output_means_high =  data.frame(IDs,summary(mcmc_means_high)$stat[1:9,1],summary(mcmc_means_high)$quant[1:9,c(1,5)],probabilities)
+names(output_means_high)<-c("ID","mean","lowCI", "highCI","prob")
+
+```
+
+The resulting data is shown in the figure below
+```{r Predominance_separate_sat_fig1,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh <- output_means_high
+outputHigh$ID <- as.character(outputHigh$ID)
+is.num <- sapply(outputHigh, is.numeric)
+outputHigh[is.num] <- lapply(outputHigh[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputHigh[,i]<- round(outputHigh[,i], digits=3)
+}
+
+
+outputLow <- output_means_low
+outputLow$ID <- as.character(outputLow$ID)
+is.num <- sapply(outputLow, is.numeric)
+outputLow[is.num] <- lapply(outputLow[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputLow[,i]<- round(outputLow[,i], digits=3)
+}
+
+
+outputHigh  <-cbind(outputHigh,Sat = c(rep(0.9,length(outputHigh$mean))))
+outputLow  <-cbind(outputLow,Sat = c(rep(0.4,length(outputLow$mean))))
+
+outputAll <- rbind(outputHigh,outputLow)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Predominance")
+
+```
+
+The data is also summarized in the following table.
+
+```{r Predominance_Bayesian_separate_result_in_table, results="asis", echo=FALSE}
+library(htmlTable)
+resultHigh <- outputHigh[match(ID_order1,outputHigh$ID),]
+resultLow <- outputLow[match(ID_order1,outputLow$ID),]
+
+for (i in c(1:9)){
+  if (resultHigh[i,5]>0.999){
+    resultHigh[i,5] <-0.999
+  }
+}
+
+for (i in c(1:9)){
+  if (resultLow[i,5]>0.999){
+    resultLow[i,5] <-0.999
+  }
+}
+resultsAll <- cbind(resultLow[1:5],resultHigh[1:5])
+cgroup = c("Sat=0.4","Sat=0.9")
+n.cgroup = c(5, 5)
+#is.num <- sapply(resultsAll, is.numeric)
+#resultsAll[is.num] <- lapply(resultsAll[is.num], round,2)
+htmlTable(txtRound(resultsAll, digits=3), align="ccccc|ccccc",
+		  header=paste(c("ID", "mean", "low CI", "high CI ", "<sup>a</sup>prob", "ID", "mean", "low CI", "high CI", "<sup>a</sup>prob"),"&nbsp;&nbsp; "),
+		  cgroup = cgroup,
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  n.cgroup = n.cgroup, 
+		  rnames=FALSE,
+		  caption="Effect of saturation level on predominance of grouped percepts",
+		  tfoot="<sup>a</sup>prob = probability of mean <0.5 ",
+		  ctable=TRUE)
+
+```
+## Saturation level effects on dominance duration and number of visits
+We next examine whether this increase in the predominance of grouped percepts is due to an increase in the mean time of grouped percepts reports, a decrease in 
+the  mean time single eye percept reports, or an increased
+probability of switching to a grouped percept (number of visits to grouped percepts).
+
+### Increase in color saturation decreases dominance duration of single-eye percepts 
+
+We next compared the mean dominance duration for both single-eye and grouped percepts under the two conditions
+
+```{r Dominance_duration_linear_fit,, include=FALSE,cache=TRUE}
+# Next compare the difference in dominance duration times for grouped and single percepts
+# across  the two conditions ------------------------------------ 
+
+source("HierarchicalModel_Ratios.R")
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)
+
+results.singleBayes<-matrix(0,nrow=9,ncol=5)
+colnames(results.singleBayes)<-c("ID","mean","low CI","high CI","Probability")
+results.fusedBayes<-matrix(0,nrow=9,ncol=5)
+colnames(results.fusedBayes)<-c("ID","mean","low CI","high CI","Probability")
+
+data <- dataInTable
+data1 <- data[data$Tdata.perc > 0,]
+
+y1s.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
+y1s.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
+y1s.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
+y1s.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
+
+y1s = c( y1s.low , y1s.high ) # combine data into one vector
+y1s.subject = c( y1s.low.subj, y1s.high.subj )
+
+# create group membership code, 0 for low, 1 for high
+x1s = c( rep(0,length(y1s.low)) , rep(1,length(y1s.high)) )
+
+#same for fused state reports
+y1f.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
+y1f.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
+y1f.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
+y1f.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
+
+y1f = c( y1f.low , y1f.high ) 
+y1f.subject = c( y1f.low.subj, y1f.high.subj )
+
+x1f = c( rep(0,length(y1f.low)) , rep(1,length(y1f.high)) )
+
+
+# fit Bayesian model - comment out to run only linear model
+
+combined.single = data.frame(x1s,y1s,y1s.subject)
+names(combined.single) <- c("number","duration","subject")
+combined.fused = data.frame(x1f,y1f,y1f.subject)
+names(combined.fused) <- c("number","duration","subject")
+
+mcmc.single = genMCMC.hierarchical( data=combined.single , xName="number" , yName="duration", sName = "subject" ,numSavedSteps=20000  )
+mcmc.fused = genMCMC.hierarchical( data=combined.fused , xName="number" , yName="duration", sName = "subject" , numSavedSteps=20000 )
+
+
+mcmcMat.s = as.matrix(mcmc.single,chains=TRUE)
+probabilities.single = apply(mcmcMat.s[,11:19], 2, function(x) sum(x<0)/length(x))
+output.single =  data.frame(IDs,summary(mcmc.single)$stat[10:18,1],summary(mcmc.single)$quant[10:18,c(1,5)], probabilities.single)
+names(output.single)=c("ID", "mean","lowCI","highCI","prob.")
+
+mcmcMat.f = as.matrix(mcmc.fused,chains=TRUE)
+probabilities.fused = apply(mcmcMat.f[,11:19], 2, function(x) sum(x>0)/length(x))
+output.fused =  data.frame(IDs,summary(mcmc.fused)$stat[10:18,1],summary(mcmc.fused)$quant[10:18,c(1,5)], probabilities.fused)
+names(output.fused)=c("ID", "mean","lowCI","highCI","prob.")
+```
+
+The following table shows the probability for the difference in the mean duration of the single eye percept reports and grouped percept reports in the low and high saturation conditions separately. A negative value indicates a decrease.
+Six subjects, including all five who showed an increased ratios of observing grouped percepts demonstrate a decreased fraction of reports of single-eye percepts with probability larger than 0.9. Comparing with the single-eye dominance duration, grouped percept dominance duration show much less variations. Only three subjects, AB, FG and ZM, showed a probable decrease in duration with an increase change in color saturation with probability 0.9.  
+
+```{r single_Dom_duration_Bayesian_linear_fit_result_in_table, results="asis", echo=FALSE}
+library(htmlTable)
+
+
+#IDs <- as.character(IDs)
+trySingle <-output.single[match(ID_order1, output.single$ID),]
+
+trySingle$ID <- as.character(trySingle$ID)
+is.num <- sapply(trySingle, is.numeric)
+#trySingle[is.num] <- lapply(trySingle[is.num], round,3)
+for (i in c(1:9)){
+  if( trySingle[i,5]>0.999){
+    trySingle[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  trySingle[,i]<- round(trySingle[,i], digits=3)
+}
+
+
+tryfused <- output.fused[match(ID_order1, output.fused$ID),]
+
+tryfused$ID <- as.character(tryfused$ID)
+
+is.num <- sapply(tryfused, is.numeric)
+#tryfused[is.num] <- lapply(tryfused[is.num], round,3)
+for (i in c(1:9)){
+  if( tryfused[i,5]>0.999){
+    tryfused[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  tryfused[,i]<- round(tryfused[,i], digits=3)
+}
+resultsAll <- cbind(trySingle[1:5],tryfused[1:5])
+cgroup = c("single-eye perc","grouped perc. ")
+n.cgroup = c(5, 5)
+#is.num <- sapply(resultsAll, is.numeric)
+#resultsAll[is.num] <- lapply(resultsAll[is.num], round,2)
+htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
+		  header=paste(c("ID", "diff.", "low CI", "high CI ","<sup>a</sup>D-prob.", "ID", "diff.", "low CI", "high CI","<sup>a</sup>D-prob."),"&nbsp;&nbsp; "),
+		  cgroup = cgroup,
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  n.cgroup = n.cgroup, 
+		  rnames=FALSE,
+		  caption="Effect of saturation level on dominance duration",
+		  tfoot="<sup>a</sup>D-prob. =Decreasing probability",
+		  ctable=TRUE)
+
+```
+
+
+
+```{r  Dominance_single_Separate_Saturation_Distr, cache=TRUE, include=FALSE}
+
+# Next we compute the means for single ------------------------------------ 
+rescale.f = 1000000
+
+source("ModelMeans_hierarchical.R")
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)               # Must have previously installed package rjags.
+
+# Load the data:
+dataInTable <- read.csv('dataInOneTable.csv')   # Read data file; must be in curr. work. dir.
+data <- dataInTable
+
+results.singleLow<-matrix(0,nrow=9,ncol=4)
+colnames(results.singleLow)<-c("ID","mean","low CI","high CI")
+
+results.singleHigh<-matrix(0,nrow=9,ncol=4)
+colnames(results.singleHigh)<-c("ID","mean","low CI","high CI")
+
+data1 <- data[data$Tdata.perc > 0,]
+
+y1s.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
+y1s.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
+y1s.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
+y1s.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
+
+#y1s = c( y1s.low , y1s.high ) # combine data into one vector
+y1sLow = cbind(y1s.low, y1s.low.subj)
+y1sHigh = cbind(y1s.high, y1s.high.subj)
+
+singleLow = as.data.frame(y1sLow)
+singleHigh = as.data.frame(y1sHigh)
+
+names(singleLow) <- c("duration","subject")
+#combined.fused = data.frame(x1f,y1f,y1f.subject)
+names(singleHigh) <- c("duration","subject")
+mcmc.singleLow = genMCMC( data=singleLow, yName="duration", sName = "subject" ,numSavedSteps=20000  )
+mcmc.singleHigh = genMCMC( data=singleHigh, yName="duration", sName = "subject" ,numSavedSteps=20000  )
+
+
+ID_order <- c("AB", "AJ","FG","MA","ML","ND","YW","ZK","ZM")
+output.singleLow =  cbind(ID_order,summary(mcmc.singleLow)$stat[1:9,1],summary(mcmc.singleLow)$quant[1:9,c(1,5)])
+
+rownames(output.singleLow) <- NULL
+output.singleHigh =  cbind(ID_order,summary(mcmc.singleHigh)$stat[1:9,1],summary(mcmc.singleHigh)$quant[1:9,c(1,5)])
+rownames(output.singleHigh) <- NULL
+
+```
+
+
+```{r Dominance_single_sat_fig2,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1 <- as.data.frame(output.singleHigh)
+names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
+
+outputLow1 <- as.data.frame(output.singleLow)
+names(outputLow1) <- c("ID","mean","lowCI", "highCI")
+
+outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
+outputLow1  <-cbind(outputLow1,Sat = c(rep(0.4,length(outputLow1$mean))))
+for (i in c(2:5)){
+  outputHigh1[,i] <- as.numeric(as.character(outputHigh1[,i]))
+  outputLow1[,i] <- as.numeric(as.character(outputLow1[,i]))
+}
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+#outputAll$ID <- factor(outputAll$ID)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("single-eye")
+```
+
+
+
+
+```{r Dominance_fused_separate_distr,cache=TRUE, include=FALSE}
+results.fusedLow<-matrix(0,nrow=9,ncol=4)
+colnames(results.fusedLow)<-c("ID","mean","low CI","high CI")
+
+results.fusedHigh<-matrix(0,nrow=9,ncol=4)
+colnames(results.fusedHigh)<-c("ID","mean","low CI","high CI")
+
+
+y1f.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
+y1f.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
+y1f.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
+y1f.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
+
+y1fLow = cbind( y1f.low, y1f.low.subj) 
+y1fHigh = cbind( y1f.high, y1f.high.subj)
+
+fusedLow = as.data.frame(y1fLow)
+fusedHigh = as.data.frame(y1fHigh)
+
+names(fusedLow) <- c("duration", "subject")
+names(fusedHigh) <- c("duration", "subject")
+mcmc.fusedLow = genMCMC( data=fusedLow, yName="duration", sName = "subject" , numSavedSteps=20000 )
+mcmc.fusedHigh = genMCMC( data=fusedHigh,  yName="duration", sName = "subject" , numSavedSteps=20000 )
+
+
+results.fusedLow =  cbind(ID_order,summary(mcmc.fusedLow)$stat[1:9,1],summary(mcmc.fusedLow)$quant[1:9,c(1,5)])
+
+results.fusedHigh =  cbind(ID_order,summary(mcmc.fusedHigh)$stat[1:9,1],summary(mcmc.fusedHigh)$quant[1:9,c(1,5)])
+
+```
+
+
+
+```{r Dominance_fused,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1 <- as.data.frame(results.fusedHigh)
+names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
+
+outputLow1 <- as.data.frame(results.fusedLow)
+names(outputLow1) <- c("ID","mean","lowCI", "highCI")
+
+outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
+outputLow1  <-cbind(outputLow1,Sat = c(rep(0.4,length(outputLow1$mean))))
+for (i in c(2:5)){
+  outputHigh1[,i] <- as.numeric(as.character(outputHigh1[,i]))
+  outputLow1[,i] <- as.numeric(as.character(outputLow1[,i]))
+}
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("Grouped")
+```
+
+
+### Increasing saturation level increases ratios of the number of visits to grouped percepts.
+We next use the same data as above compute ratios of the number of visits to grouped percepts.
+
+ $$\frac{N_{\rm grouped}}{N_{\rm grouped} + N_{\rm single_eye}}$$
+
+```{r computing_ratios_num_visits_grouped_percept, cache=TRUE,include=FALSE}
+# loading data in csv file.
+dataInTable <- read.csv('dataInOneTable.csv')
+
+nTrials <- unique(dataInTable$nTrial)
+# set up a data frame to store dominance ratios (grouped/ (grouped + single))
+fused_over_fusedNSingle_ratios_Num_Visits <- data.frame(IDs = c(), Sat =c(), ratios=c())
+Data_trials <- split(dataInTable, dataInTable$nTrial)
+
+for (i in nTrials){
+  data <- Data_trials[[i]]
+  fused <- subset(data, data$Tdata.perc ==3 | data$Tdata.perc ==4)
+  single <- subset(data, data$Tdata.perc ==1 | data$Tdata.perc ==2)
+  totalFusedVisits <- length(fused$Tdata.perc)
+  totalSingleVisits <- length(single$Tdata.perc)
+  ratio <-  totalFusedVisits /(totalFusedVisits + totalSingleVisits)
+  ID <- data$IDs[1]
+  Sat <- data$Sat[1]
+  newData <- data.frame(IDs = ID, Sat = Sat, Ratio = ratio)
+  fused_over_fusedNSingle_ratios_Num_Visits <- rbind(fused_over_fusedNSingle_ratios_Num_Visits,newData)
+}
+
+write.csv(fused_over_fusedNSingle_ratios_Num_Visits, 'ratios_numberVisits_to_grouped.csv',row.names=FALSE)
+```
+ 
+
+```{r number_visits_linear_fit,cache=TRUE, include=FALSE}
+# Next we look at the frequency of visits to grouped percepts  -----------------
+
+source("HierarchicalModel_Ratios.R")
+
+nTrials <- unique(dataInTable$nTrial)
+# set up a data frame to store dominance ratios (grouped/ (grouped + single))
+data.ratios.visits <- data.frame(IDs = c(), Sat =c(), ratios=c())
+Data_trials <- split(dataInTable, dataInTable$nTrial)
+
+for (i in nTrials){
+  data <- Data_trials[[i]]
+  fused <- subset(data, data$Tdata.perc ==3 | data$Tdata.perc ==4)
+  single <- subset(data, data$Tdata.perc ==1 | data$Tdata.perc ==2)
+  totalFusedVisits <- length(fused$Tdata.perc)
+  totalSingleVisits <- length(single$Tdata.perc)
+  ratio <-  totalFusedVisits /(totalFusedVisits + totalSingleVisits)
+  ID <- data$IDs[1]
+  Sat <- data$Sat[1]
+  newData <- data.frame(IDs = ID, Sat = Sat, Ratio = ratio)
+  data.ratios.visits <- rbind(data.ratios.visits,newData)
+}
+
+
+data <- data.ratios.visits
+data$ID <- as.numeric(data.ratios.visits$ID) 
+data$Sat <- sapply(data.ratios.visits$Sat, function(x) if(x<0.5) {return(0)} else {return(1)})
+names(data)<- c("ID","Sat","ratio")
+
+
+xName = "Sat"
+yName = "ratio"
+sName = "ID"
+
+# We first compute the difference between the ratios, and the probaibility
+# that it increases between conditions
+
+
+
+mcmc.grouped.visists = genMCMC.hierarchical( data=data , xName=xName , yName=yName , sName=sName ,
+                                 numSavedSteps=50000 , thinSteps=15 )
+
+
+
+mcmcMat = as.matrix(mcmc.grouped.visists,chains=TRUE)
+#Probablity that visits to grouped percepts increase
+probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
+output_ratiod_grouped=  data.frame(IDs,summary(mcmc.grouped.visists)$stat[10:18,1],summary(mcmc.grouped.visists)$quant[10:18,c(1,5)], probabilities)
+
+names(output_ratiod_grouped)=c("ID","mean","lowCI","highCI","prob.")
+```
+
+Based on these ratios, we compute the mean for each 
+subject at the each saturation condition. We use the same analysis as in the case of the predominance of
+grouped percepts to compute the posterior probability of a change in this ratio.
+The results are shown in the following figure. The analysis
+is consistent with the result of predominance: the subjects ZK, AJ, ML  and AB, and to a lesser degree MA and ZM, show a consistent increases in the number of visits to grouped percepts. 
+
+In summary, in some subjects an increase in color saturation level leads to an increase in the predominance of grouped percepts. This increase is due to two factors: the decrease in the domininace duration of single-eye percepts and the increase in the fraction of visits to grouped 
+percepts. 
+
+```{r result_bayesian_number_visits_linear_fit_in_table, results="asis",echo=FALSE}
+library(htmlTable)
+
+tryOutput<- output_ratiod_grouped[match(ID_order1,output_ratiod_grouped$ID),]
+tryOutput$ID <- as.character(tryOutput$ID)
+#tryOutput$ID<-factor(tryOutput$ID, levels=ID_order)
+for (i in c(2:5)){
+  tryOutput[,i] <- as.numeric(tryOutput[,i])
+}
+is.num <- sapply(tryOutput, is.numeric)
+tryOutput[is.num] <- lapply(tryOutput[is.num], round,3)
+for (i in c(1:9)){
+  if (tryOutput[i,5]>0.999){
+    tryOutput[i,5] <-0.999
+  }
+}
+
+for (i in c(2:4)){
+  tryOutput[,i]<- round(tryOutput[,i], digits=3)
+}
+
+
+htmlTable(txtRound(tryOutput,3), align="ccccc",
+		 header=paste(c("ID", "<sup>a</sup>diff.", "low CI", "high CI ", "prob."),"&nbsp;"),
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  #rowlabel="",
+		  rnames=FALSE,
+		  caption="Ratios of number of visits to grouped percepts",
+		  tfoot="<sup>a</sup>diff. = mean at saturation 0.9 - mean at saturation 0.4 ",
+		  ctable=TRUE)
+
+```
+
+```{r latex_number_visits,include=FALSE}
+library(xtable)
+xtable(tryOutput,digits=c(2,2,2,2,2,3))
+```
+
+
+
+
+
+```{r Bayesian_Analysis_numberVisits_Ratio_Separate_Saturation, include=FALSE,cache=TRUE}
+data.ratios <- read.csv('ratios_numberVisits_to_grouped.csv')
+names(data.ratios) <- c("ID","Sat","ratio")
+
+library(rjags)
+source("ModelMeans_hierarchical.R")
+
+
+dataHigh <- data.ratios[data.ratios$Sat==0.9,]
+dataLow <- data.ratios[data.ratios$Sat==0.4,]
+
+
+for (j in c(1:2)){
+  if (j==1){
+    data<-dataHigh
+  }else{
+    data<-dataLow
+  }
+  
+  mcmc.grouped.visists = genMCMC( data=data , yName="ratio", sName="ID" ,
+                                  numSavedSteps=50000 )
+  
+  if (j==1){
+    output_High <-  cbind(ID_order,summary(mcmc.grouped.visists)$stat[1:9,1],summary(mcmc.grouped.visists)$quant[1:9,c(1,5)])
+    colnames(output_High)<-c("ID", "mean", "lowCI","highCI")
+    row.names(output_High)<-NULL
+  }else{
+    output_Low <-  cbind(ID_order,summary(mcmc.grouped.visists)$stat[1:9,1],summary(mcmc.grouped.visists)$quant[1:9,c(1,5)])
+    colnames(output_Low)<-c("ID", "mean", "lowCI","highCI")
+    row.names(output_High)<-NULL
+  }
+}
+```
+
+
+
+```{r result_bayesian_num_visits_ratio_separate_sat_in_fig,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1 <- as.data.frame(output_High)
+names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
+
+outputLow1 <- as.data.frame(output_Low)
+names(outputLow1) <- c("ID","mean","lowCI", "highCI")
+
+outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
+outputLow1  <-cbind(outputLow1,Sat = c(rep(0.4,length(outputLow1$mean))))
+for (i in c(2:5)){
+  outputHigh1[,i] <- as.numeric(as.character(outputHigh1[,i]))
+  outputLow1[,i] <- as.numeric(as.character(outputLow1[,i]))
+}
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Ratio of number visits")+
+  ggtitle("Grouped Perc.")
+```
+
+## Changes in transition probabilities
+
+We next examine whether there is a change in the probability of transitions
+between and among the grouped and single eye stimuli with an increase in color saturation. 
+To estimate the transition probabilities between percept types,
+we classified percepts into two states: single-eye, S, corresponding to percepts 1 and 2, and
+grouped, G, corresponding to percepts 3 and 4. For each trial, we converted the data into two
+binary data sequences: One sequence contained all transitions from state S with transitions
+from S to S denoted by 1, and from S to G by 0. The second sequence contained transitions
+from G, those from G to G denoted by 1, and from G to S by 0. We used all data obtained
+by each subject in a given condition (low/high color saturation) to estimate the transition
+probability from S to S, and from G to G by fitting a hierachical binomial model
+for the transition probability. See ModelTransitionDiff_hierachical.R for more detail.
+  
+
+```{r transition_diff_linear_fit, include=FALSE, cache=TRUE}
+source("ModelTransitionDiff_hierarchical.R")
+dataInTable <- read.csv('dataInOneTable.csv')
+  data <- dataInTable
+  # transtion binary single-to-single
+  NAs <- rep(NA,10000)
+
+single.trans <- data.frame(x= integer(0), y= integer(0), subj = character(0))
+grouped.trans <- data.frame(x= integer(0), y= integer(0), subj = character(0))
+
+for (subject in levels(data$IDs)){
+  data.subj <- data[data$IDs==subject,] 
+  data.subj = data.frame(data.subj$nTrial,data.subj$Tdata.perc,data.subj$Sat)
+  names(data.subj) = c("Trial","Percept","Sat")
+  # Keep only recorded percepts 
+  data.subj = data.subj[data.subj$Percept>0,]
+  # Seperate data by saturation.
+  dataHigh <- data.subj[data.subj$Sat==0.9,]
+  dataLow <-data.subj[data.subj$Sat==0.4,]
+  # transtion binary single-to-single
+  NAs <- rep(NA,10000)
+  
+  for (q in c(1:2)){
+    if (q==1){
+      # Deal with the data with high saturation level.
+      Data_trials <- split(dataHigh, dataHigh$Trial)
+    }else{
+      # Deal with the data with low saturation level.
+      Data_trials <- split(dataLow, dataLow$Trial)
+    }
+    
+    #Data_trials <- split(dataHigh, dataHigh$Trial)
+    nTrials <- length(Data_trials)
+    singleN <- 0
+    groupedN <- 0
+    #ssAll <- data.frame(transition=NAs)
+    #ggAll <- data.frame(transition=NAs)
+    ssAll <- NAs
+    ggAll <- NAs
+    # run through all trials and for each trial we need to find the transition
+    for (i in c(1:nTrials) ){
+      dataOneTrial <- Data_trials[[i]]
+      len <- length(dataOneTrial$Percept)
+      for (j in c(1:(len-1))){
+        #print(j)
+        curP <- dataOneTrial$Percept[j]
+        nextP <- dataOneTrial$Percept[j+1]
+        #print(curP)
+        #print(nextP)
+        if (curP==1 | curP==2){
+          singleN <- singleN +1
+          if (nextP==1 | nextP==2){
+            ssAll[singleN]<- 1
+          }else{
+           ssAll[singleN]<- 0
+          }
+        }else{
+          groupedN <- groupedN +1
+          if (nextP==3 | nextP==4){
+            #ggAll$transition[groupedN]<- 1
+            ggAll[groupedN]<- 1
+          }else{
+            #ggAll$transition[groupedN]<- 0
+            ggAll[groupedN]<- 0
+          }
+        }
+      }# end of go through one trial
+    } # end of the loop of all trials
+    
+    # Analyze the data of ssAll and ggAll
+    ssAll <- ssAll[c(1:singleN)]
+    ggAll <- ggAll[c(1:groupedN)]
+    
+    if (q==1){
+      ssAll.high<-ssAll
+      ggAll.high<-ggAll
+    }else{
+      ssAll.low<-ssAll
+      ggAll.low<-ggAll
+    }
+  } # end of q loop -- gone through two satuation loop.
+  ysingle<-c(ssAll.low, ssAll.high)
+  xsingle<-c(rep(0, length(ssAll.low)), rep(1, length(ssAll.high)))
+  subj <- c(rep(subject, length(ysingle)))
+  combined.single<- data.frame(xsingle, ysingle,subj)
+  single.trans<-rbind(single.trans, combined.single)
+  
+  ygrouped<-c(ggAll.low, ggAll.high)
+  xgrouped<-c(rep(0, length(ggAll.low)), rep(1, length(ggAll.high)))
+  subj <- c(rep(subject, length(ygrouped)))
+  combined.grouped<- data.frame(xgrouped, ygrouped,subj)
+  grouped.trans<-rbind(grouped.trans, combined.grouped)
+}# end of subject loop
+
+source("ModelTransitionDiff_hierarchical.R")
+
+# compute for single-to singles
+names(single.trans)<-c("number","trans","subject")
+mcmctrans_single = genMCMC_trans( data=single.trans , xName="number", yName="trans", sName= "subject" ,numSavedSteps=500000)
+
+names(grouped.trans)<-c("number","trans","subject")
+mcmctrans_grouped = genMCMC_trans( data = grouped.trans , xName="number", yName="trans",  sName = "subject"  ,numSavedSteps=500000)
+
+mcmcMat.s = as.matrix(mcmctrans_single,chains=TRUE)
+probabilities.single = apply(mcmcMat.s[,11:19], 2, function(x) sum(x<0)/length(x))
+output.single =  data.frame(ID_order,summary(mcmctrans_single)$stat[10:18,1],summary(mcmctrans_single)$quant[10:18,c(1,5)], probabilities.single)
+names(output.single)<-c("ID","mean","lowCI","highCI","prob")
+
+mcmcMat.f = as.matrix(mcmctrans_grouped,chains=TRUE)
+probabilities.fused = apply(mcmcMat.f[,11:19], 2, function(x) sum(x>0)/length(x))
+output.fused =  data.frame(ID_order,summary(mcmctrans_grouped)$stat[10:18,1],summary(mcmctrans_grouped)$quant[10:18,c(1,5)], probabilities.fused)
+names(output.fused)<-c("ID","mean","lowCI","highCI","prob")
+```
+
+The results presented in the table below show that six of the subjects (ZK,AB,AJ, ML, MA,ZM) show a decrease in single-eye to single-eye transition with probability higher than 0.87 and  four of these (ZK,AB,AJ, ML) also show an increase in grouped-to-grouped transitions with probability higher than 0.9. This subset again belongs to those that experienced an increased predominance of grouped percepts with an increase in color saturation. 
+
+```{r transition_linear_fit_in_table, results="asis", echo=FALSE}
+library(htmlTable)
+
+trySingle <- output.single[match(ID_order1,output.single$ID),]
+
+trySingle$ID <- as.character(trySingle$ID)
+is.num <- sapply(trySingle, is.numeric)
+#trySingle[is.num] <- lapply(trySingle[is.num], round,3)
+for (i in c(1:9)){
+  if( trySingle[i,5]>0.999){
+    trySingle[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  trySingle[,i]<- round(trySingle[,i], digits=3)
+}
+
+
+tryfused <- output.fused[match(ID_order1,output.fused$ID),]
+
+tryfused$ID <- as.character(tryfused$ID)
+
+is.num <- sapply(tryfused, is.numeric)
+#tryfused[is.num] <- lapply(tryfused[is.num], round,3)
+for (i in c(1:9)){
+  if( tryfused[i,5]>0.999){
+    tryfused[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  tryfused[,i]<- round(tryfused[,i], digits=3)
+}
+resultsAll <- cbind(trySingle[1:5],tryfused[1:5])
+cgroup = c("single-to-single","grouped-to-grouped ")
+n.cgroup = c(5, 5)
+#is.num <- sapply(resultsAll, is.numeric)
+#resultsAll[is.num] <- lapply(resultsAll[is.num], round,2)
+htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
+		  header=paste(c("ID", "diff.", "low CI", "high CI ","<sup>a</sup>D-prob.", "ID", "diff.", "low CI", "high CI","prob."),"&nbsp;&nbsp; "),
+		  cgroup = cgroup,
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  n.cgroup = n.cgroup, 
+		  rnames=FALSE,
+		  caption="Effect of saturation level on transitions",
+		  tfoot="<sup>a</sup>D-prob. =Decreasing probability",
+		  ctable=TRUE)
+
+```
+
+ 
+```{r latex_table_transition,include=FALSE}
+library(xtable)
+xtable(resultsAll,digits=c(2,2,2,2,2,3,2,2,2,2,3))
+```
+
+
+
+The following figure shows the distributions of means at each saturation level for each subject seperately.
+
+```{r transition_separate, include=FALSE, cache=TRUE}
+source("ModelTransitionMean_hierarchical.R")
+dataInTable <- read.csv('dataInOneTable.csv')
+  data <- dataInTable
+  # transtion binary single-to-single
+  NAs <- rep(NA,10000)
+single.transLow <- data.frame( y= integer(0), subj = character(0))
+single.transHigh <- data.frame( y= integer(0), subj = character(0))
+grouped.transLow <- data.frame(y= integer(0), subj = character(0))
+grouped.transHigh <- data.frame(y= integer(0), subj = character(0))
+
+for (subject in levels(data$IDs)){
+  data.subj <- data[data$IDs==subject,] 
+  data.subj = data.frame(data.subj$nTrial,data.subj$Tdata.perc,data.subj$Sat)
+  names(data.subj) = c("Trial","Percept","Sat")
+  # Keep only recorded percepts 
+  data.subj = data.subj[data.subj$Percept>0,]
+  # Seperate data by saturation.
+  dataHigh <- data.subj[data.subj$Sat==0.9,]
+  dataLow <-data.subj[data.subj$Sat==0.4,]
+  # transtion binary single-to-single
+  NAs <- rep(NA,10000)
+  
+  for (q in c(1:2)){
+    if (q==1){
+      # Deal with the data with high saturation level.
+      Data_trials <- split(dataHigh, dataHigh$Trial)
+    }else{
+      # Deal with the data with low saturation level.
+      Data_trials <- split(dataLow, dataLow$Trial)
+    }
+    
+    #Data_trials <- split(dataHigh, dataHigh$Trial)
+    nTrials <- length(Data_trials)
+    singleN <- 0
+    groupedN <- 0
+    #ssAll <- data.frame(transition=NAs)
+    #ggAll <- data.frame(transition=NAs)
+    ssAll <- NAs
+    ggAll <- NAs
+    # run through all trials and for each trial we need to find the transition
+    for (i in c(1:nTrials) ){
+      dataOneTrial <- Data_trials[[i]]
+      len <- length(dataOneTrial$Percept)
+      for (j in c(1:(len-1))){
+        #print(j)
+        curP <- dataOneTrial$Percept[j]
+        nextP <- dataOneTrial$Percept[j+1]
+        #print(curP)
+        #print(nextP)
+        if (curP==1 | curP==2){
+          singleN <- singleN +1
+          if (nextP==1 | nextP==2){
+            ssAll[singleN]<- 1
+          }else{
+           ssAll[singleN]<- 0
+          }
+        }else{
+          groupedN <- groupedN +1
+          if (nextP==3 | nextP==4){
+            #ggAll$transition[groupedN]<- 1
+            ggAll[groupedN]<- 1
+          }else{
+            #ggAll$transition[groupedN]<- 0
+            ggAll[groupedN]<- 0
+          }
+        }
+      }# end of go through one trial
+    } # end of the loop of all trials
+    
+    # Analyze the data of ssAll and ggAll
+    ssAll <- ssAll[c(1:singleN)]
+    ggAll <- ggAll[c(1:groupedN)]
+    
+    if (q==1){
+      ssAll.high<-ssAll
+      ggAll.high<-ggAll
+    }else{
+      ssAll.low<-ssAll
+      ggAll.low<-ggAll
+    }
+  } # end of q loop -- gone through two satuation loop.
+  subj <- c(rep(subject, length(ssAll.high)))
+  combined.singleHigh<- data.frame(ssAll.high,subj)
+  single.transHigh<-rbind(single.transHigh, combined.singleHigh)
+  
+  subj <- c(rep(subject, length(ssAll.low)))
+  combined.singleLow<- data.frame(ssAll.low,subj)
+  single.transLow<-rbind(single.transLow, combined.singleLow)
+  
+  
+  subj <- c(rep(subject, length(ggAll.high)))
+  combined.grouped<- data.frame(ggAll.high,subj)
+  grouped.transHigh<-rbind(grouped.transHigh, combined.grouped)
+  
+  subj <- c(rep(subject, length(ggAll.low)))
+  combined.grouped<- data.frame(ggAll.low,subj)
+  grouped.transLow<-rbind(grouped.transLow, combined.grouped)
+}# end of subject loop
+
+
+# compute for single-to singles
+names(single.transLow)<-c("trans","subject")
+mcmctrans_singleLow = genMCMC_trans( data=single.transLow, yName="trans", sName= "subject" ,numSavedSteps=200000)
+output.singleLow =  data.frame(ID_order,summary(mcmctrans_singleLow)$stat[1:9,1],summary(mcmctrans_singleLow)$quant[1:9,c(1,5)])
+names(output.singleLow)=c("ID","mean","lowCI", "highCI")
+
+names(single.transHigh)<-c("trans","subject")
+mcmctrans_singleHigh = genMCMC_trans( data=single.transHigh, yName="trans", sName= "subject" ,numSavedSteps=200000)
+output.singleHigh =  data.frame(ID_order,summary(mcmctrans_singleHigh)$stat[1:9,1],summary(mcmctrans_singleHigh)$quant[1:9,c(1,5)])
+names(output.singleHigh)=c("ID","mean","lowCI", "highCI")
+
+names(grouped.transLow)<-c("trans","subject")
+mcmctrans_groupedLow = genMCMC_trans( data=grouped.transLow, yName="trans", sName= "subject" ,numSavedSteps=200000)
+output.groupedLow =  data.frame(ID_order,summary(mcmctrans_groupedLow)$stat[1:9,1],summary(mcmctrans_groupedLow)$quant[1:9,c(1,5)])
+names(output.groupedLow)=c("ID","mean","lowCI", "highCI")
+
+names(grouped.transHigh)<-c("trans","subject")
+mcmctrans_groupedHigh = genMCMC_trans( data=grouped.transHigh, yName="trans", sName= "subject" ,numSavedSteps=200000)
+output.groupedHigh =  data.frame(ID_order,summary(mcmctrans_groupedHigh)$stat[1:9,1],summary(mcmctrans_groupedHigh)$quant[1:9,c(1,5)])
+names(output.groupedHigh)=c("ID","mean","lowCI", "highCI")
+```
+
+```{r transition_separateSS_sat_in_fig,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1  <-cbind(output.singleHigh,Sat = c(rep(0.9,length(output.singleHigh$mean))))
+outputLow1  <-cbind(output.singleLow,Sat = c(rep(0.4,length(output.singleLow$mean))))
+
+  outputHigh1[,1] <- as.character(outputHigh1[,1])
+  outputLow1[,1] <- as.character(outputLow1[,1])
+  
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("transition")+
+  ggtitle("Single-to-Single")
+```
+
+```{r transition_separateGG_sat_in_fig,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1  <-cbind(output.groupedHigh,Sat = c(rep(0.9,length(output.groupedHigh$mean))))
+outputLow1  <-cbind(output.groupedLow,Sat = c(rep(0.4,length(output.groupedLow$mean))))
+
+  outputHigh1[,1] <- as.character(outputHigh1[,1])
+  outputLow1[,1] <- as.character(outputLow1[,1])
+  
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("transition")+
+  ggtitle("grouped-to-grouped")
+```
+ 
+
+## Full distributions of different quantities per subject
+
+### Distribution of observation times
+
+This is the distribution of times for each of the percepts under the four conditions.
+The four percepts are separated into single-eye and grouped groups.  We fit a gamma
+distribution for each condition using max likelihood and the **fitdistr** function.
+
+```{r distribution_dom_duration, echo=FALSE, out.width = '300px', out.height = '300px', cache=TRUE}
+
+
+
+library(MASS)
+
+# Data is recorded in microcseconds. We use this factor to rescale to seconds
+rescale.f = 1000000
+
+# Make a plot of the dominance distribution for all subjects
+# restrict subject and only the percept conditions
+# 
+# You can run this with different subjects
+
+
+for (subject in levels(data$IDs)){
+  
+  data1 <- data[ data$IDs == subject & data$Tdata.perc > 0, ]
+  
+  # List of all 4 conditions
+  conditions <- levels(data1$Conds)
+  saturation <- levels(data1$Sat)
+  
+  # Cycle over all conditions and make plot of duration for each 1
+  # Note that we are separating by percept (fused or single eye)
+  # and by saturation level
+  
+  par(oma=c(2.3,2.3,2.3,2.3))
+  par(mfrow=c(2,2))
+  for (i in c(0.4,0.9)){
+    toplot <- data1[data1$Sat == i & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2), ]
+    #Get it to the right timescale in seconds
+    toplot <- toplot$Tdata.duration/rescale.f
+    m = mean(toplot)
+    
+    #Fit gamma distribution using max likelihood, using function fitdistr
+    fit <- fitdistr(toplot,"gamma", start=list(shape = 1, rate = 0.1),lower=0.001)
+    shape = fit$estimate[[1]]
+    scale = 1/fit$estimate[[2]]
+    
+    #plot histogram
+    hist(toplot, breaks=22, freq = FALSE, col = "blue",xlab=paste("Duration [s], mean=", round(m,2)), 
+         main= paste("Single eye and sat", i))         
+    # shape and scale obtained by 
+    curve(dgamma(x, shape,  scale=scale), add=TRUE, col='darkblue', lwd=2)
+    
+    #Do it again for the fused percepts
+    toplot <- subset(data1, data1$Sat == i & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4))
+    toplot <- toplot$Tdata.duration/rescale.f
+    m = mean(toplot)
+    
+    #Fit gamma distribution using max likelihood
+    fit <- fitdistr(toplot,"gamma",start=list(shape = 1, rate = 0.1),lower=0.001)
+    shape = fit$estimate[[1]]
+    scale = 1/fit$estimate[[2]]
+    
+    #plot histogram
+    hist(toplot, breaks=22, freq = FALSE, col = "blue", xlab=paste("Duration [s], mean=", round(m,2)),
+         main= paste("Grouped and sat", i) )        
+    # shape and scale
+    curve(dgamma(x, shape,  scale=scale), add=TRUE, col='darkblue', lwd=2)
+    }
+  title(paste("Subject", subject), outer=TRUE)
+}
+
+```
+
+The observations are overall well fit by a gamma distribution, although there is some variability in the goodness of fit across distributions. 
+
+To get an idea of how the average duration of the grouped and single eye percepts compare
+across conditions, we can look at the boxplots comparing the distribution of durations. It would be better to show color saturation levels side-by-side, since we want to compare single to single in either color saturation level, same for grouped.
+
+```{r Compare_Average_single_grouped, echo=FALSE, out.width = '300px', out.height = '300px'}
+data.nz <- data[data$Tdata.perc > 0,]
+
+rescale.f = 1000000
+
+for (subject in levels(data$IDs)){
+  
+  #Define a frame with no zero percepts and with only single eye and fused factors
+  fused <- c(1:length(data.nz$IDs))
+  for(i in 1:length(fused)){
+    fused[i] <- if(data.nz$Tdata.perc[i] == 1 || data.nz$Tdata.perc[i] == 2) "single" else "grouped"
+  }
+  
+  #Data frame for box plot
+  bplot <- data.frame("ID" = data.nz$IDs, "Saturation" = data.nz$Sat, 
+                          "Duration" = data.nz$Tdata.duration/rescale.f, "state" = fused )
+  
+  #IMPORTANT: Some outliers are large, making a comparison in the boxplot harder.
+  #Therefore the ragne of the boxplots is limited.  This is only in the boxplots 
+  #all observations are included in teh analaysis. 
+  bplotID <- bplot[bplot$ID == subject & bplot$Duration< 5, ]
+  bplotID$Saturation <- factor(bplotID$Saturation)
+  bplotID$state <- factor(bplotID$state)
+
+  library(ggplot2)
+  #p = ggplot(data = bplotID, aes(x = Saturation, y = Duration)) + 
+   #           geom_boxplot(aes(fill = state), width = 0.8) + theme_bw() + 
+    #          ggtitle(paste("Subject", subject))
+  
+  p = ggplot(data = bplotID, aes(x = state, y = Duration)) + 
+              geom_boxplot(aes(fill = Saturation), width = 0.8) + theme_bw() + 
+              ggtitle(paste("Subject", subject))
+  print(p)
+}
+```
+
+
+## Frequency of individual percepts
+
+The following are the fraction that each percetp is reported of the individual percepts per subject. Is there any significant pattern here?
+
+```{r Frequency_individual_perc, echo=FALSE, out.width = '300px', out.height = '300px'}
+for (subject in levels(data$IDs)){
+  
+  data1 <- data[ data$IDs == subject & data$Tdata.perc != 0  , ]
+  
+  par(oma=c(2.3,2.3,2.3,2.3))
+  colors <- c("gray10", "gray40", "gray70", "gray100")
+
+  par(mfrow=c(1,2))
+  for (i in c(0.4,0.9)){
+    toplot <- data1[data1$Sat == i, ]
+    totNum <- length(toplot$Tdata.perc) #(added by yunjiao)
+    toplot <- table(toplot$Tdata.perc)/sum(toplot$Tdata.perc>0)
+    barplot(toplot, xlab="percept number", 
+       main= paste(" Sat", i), sub = paste("Total=", totNum), col = colors)         
+  }
+
+  
+  title(paste("Subject", subject), outer=TRUE)
+}
+```
+
+
+## The overlay of dominance duration distribution of single-eye percepts.
+
+```{r overlayplot,echo=FALSE,out.width = '300px',out.height = '300px'}
+library(ggplot2)
+rescale.f = 1000000
+data <- read.csv('dataInOneTable.csv')
+par(mfrow = c(1,2))
+for (subject in levels(data$IDs)) {
+  data1 <- data[data$IDs == subject &
+                  data$Tdata.perc > 0,]
+  
+  toplotCombine <- data.frame()
+  
+  for (i in c(0.4,0.9)) {
+    toplot <-
+      data1[data1$Sat == i &
+              (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]
+    #Get it to the right timescale in seconds
+    toplot$Tdata.duration <- toplot$Tdata.duration / rescale.f
+    
+    toplotCombine <- rbind(toplotCombine,toplot)
+  }
+  toplotCombine$Sat <- as.factor(toplotCombine$Sat)
+  colnames(toplotCombine)[7] <- "Duration"
+  p = ggplot(toplotCombine, aes(Duration, fill = Sat),xlab = paste("Duration [s]")) + geom_histogram(binwidth=diff(range(toplotCombine$Duration))/30,alpha = 0.5, aes(y = ..density..), position = 'identity') +
+    ggtitle(paste("Subject", subject))
+  print(p)
+}
+```
+
+#### overlay plot of grouped percepts
+
+```{r overlayplot_gouped,echo=FALSE,out.width = '300px',out.height = '300px'}
+library(ggplot2)
+rescale.f = 1000000
+data <- read.csv('dataInOneTable.csv')
+par(mfrow=c(1,2))
+for (subject in levels(data$IDs)){
+  
+  data1 <- data[ data$IDs == subject &   
+                   data$Tdata.perc > 0, ]
+  
+  toplotCombine<-data.frame()
+  
+  for (i in c(0.4,0.9)){
+    toplot <- data1[data1$Sat == i &  (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4), ]
+    #Get it to the right timescale in seconds
+    toplot$Tdata.duration <- toplot$Tdata.duration/rescale.f
+    
+    toplotCombine <- rbind(toplotCombine,toplot)
+  }
+  toplotCombine$Sat <- as.factor(toplotCombine$Sat)
+  colnames(toplotCombine)[7]<- "Duration"
+  p=ggplot(toplotCombine, aes(Duration, fill = Sat),xlab=paste("Duration [s]")) + geom_histogram(binwidth=diff(range(toplotCombine$Duration))/30,alpha = 0.5, aes(y = ..density..), position = 'identity')+ggtitle(paste("Subject", subject))+ xlim(0, 8)
+  print(p)
+}
+```
+
+
+
