@@ -12,7 +12,7 @@ function noise = ColorNoise(Dt,  N, m, sigma)
 % (See the equation (A1) in the Appendix of Moreno et al. 07 paper)
 % Also I follows the algorithm that was proposed in 
 % 'An Algorithmic: Introduction to
-% Numerical Simulation of Stochastic Different ial Equations' 
+% Numerical Simulation of Stochastic Differential Equations' 
 %( by Desmond J. Higham,  SIAM REVIEW, 2001 
 % Vol. 43,No . 3,pp . 525-546) for generating the noise sequence.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -21,7 +21,7 @@ dt = Dt/R;
 M = R*N; 
 dw = sqrt(dt)*randn(M, m);
 tau = 1;
-taus = 20; % milisecond
+taus = 100; % milisecond
 a = 1/taus;
 %sigma = 0.03;
 Xzero = sigma*randn(1,m); 
@@ -35,3 +35,5 @@ for j= 2:N
     noise(j,:) = Xtemp;
 end
 
+%  figure(5)
+%  plot(noise(:,1))

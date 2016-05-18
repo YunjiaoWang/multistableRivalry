@@ -1,7 +1,4 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%This file is to find dominance durations from a given time series of
-% of percepts.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% seaching for the dominance time for each percept
 function [Domp] = FindDominancePeriods(T, Y)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Domp:1st col - percept #, 2nd col - duration 
@@ -22,6 +19,8 @@ L = length(T);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 er = 0.05;
 Domp = zeros(100,4);
+tStart = 0 ;
+tEnd = 0;
 
 i = 1 ;
 p = 0 ;
