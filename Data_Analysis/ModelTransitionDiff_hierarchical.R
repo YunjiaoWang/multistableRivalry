@@ -8,14 +8,16 @@ genMCMC_trans = function( data,  xName="x", yName="y", sName = "s",
   y = data[,yName]
   x = data[,xName]
   s = data[,sName]
+  Ntotal = length(y)
+  Nsubj = length(unique(s))
   
   # Specify the data in a list, for later shipment to JAGS:
   dataList = list(
     x = x ,
     y = y ,
     s = s ,
-    Ntotal = length(y),
-    Nsubj = length(unique(s))
+    Ntotal = Ntotal,
+    Nsubj = Nsubj
   )
   #-----------------------------------------------------------------------------
   # THE MODEL.
@@ -45,7 +47,7 @@ genMCMC_trans = function( data,  xName="x", yName="y", sName = "s",
   # Let JAGS do it...
   #-----------------------------------------------------------------------------
   # RUN THE CHAINS
-  parameters = c( "theta0","theta1" )
+  parameters = c( "theta0","theta1","theta1mu","theta1sigma","omega","kappa" )
   adaptSteps = 500  # Number of steps to "tune" the samplers
   burnInSteps = 1000
   nChains = 4 

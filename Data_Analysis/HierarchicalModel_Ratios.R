@@ -3,7 +3,7 @@
 genMCMC.hierarchical = function( data , xName="x" , yName="y" , sName="s" ,
                                  numSavedSteps=50000 , thinSteps = 1 , 
                                  saveName=NULL , runjagsMethod=runjagsMethodDefault ,
-                                 nChains=nChainsDefault) 
+                                 nChains=4) 
 { 
   require(rjags)
   #-----------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 title: "Binocular Rivalry Data Fitting"
 author: "Krešimir Josić,Yunjiao Wang, Alain Jacot-Guillarmod,
 Claudia Pedroza, Haluk Ogmen, Zachary Kilpatrick"
-date: "May 10, 2016"
+date: "May 26, 2016"
 ---
 
 ## Description of experiments.
@@ -122,15 +122,16 @@ print(p)
 The predominance of grouped states tends to increase for most
 observers. We next compute the probability to show that this increase is real.
 To do so, we partitioned trials based on the 
-color saturation level used for each trial, grouping across all other conditions. We analyzed
-changes in predominance using a linear Student-t regression model to account for skewness
-in the data. We included the condition (low/high color saturation) as a covariate and set
-the degrees of freedom of the t distribution to 4 to provide robust inference while avoiding
-computational difficulties often encountered when using a prior for the degrees of freedom
-(Fonseca et al., 2008). Prior distributions for the regression coeffcients were independent
-and normal with mean 0, and variance $10^4$. We estimated the mean difference in the fraction
-of time and its 95% credible interval (CI) and the probability that the difference is greater
-than 0.
+color saturation level used for each trial, grouping across all other conditions.
+
+Letting $r_{ij}$ be the predominance for subject $j$ in trial $i$, the model is specified as:
+\begin{align}
+& r_{ij} \sim t_4(\mu_{ij},\sigma^2) \nonumber \\
+& \mu_{ij} = \beta_{0j}+ \beta_{1j}\,{x_{ij}} \nonumber \\
+& \beta_{0j}\sim \text{Normal}(\beta_0, \tau_0^2), \,\beta_{1j}\sim \text{Normal}(\beta_1, \tau_1^2)\label{eqn:iden}
+\end{align} 
+where $x_{ij}$ is the color saturation indicator (1 for $0.9$, 0 for $0.4$). The random regression coefficients $ \beta_{0j}$ and $\beta_{1j}$ allow the effects of color saturation to vary across subjects. We used a linear Student-t regression model to account for skewness
+in the data.This hierarchical model assumes that the effects from different subjects are similar but not identical and come from the same population with overall means of $\beta_0$ and $\beta_1$. Prior distributions for the overall saturation effects $\beta_0$ and $\beta_1$ were independent and normal with mean 0, and variance $10^4$. We used Uniform(0, 100) priors for the standard deviation of the random effects, $\tau_0$ and $\tau_1$ and Uniform(0, 1000) for $\sigma$. We estimated the mean difference in the fraction of time and its 95\% credible interval (CI) and the probability that the difference is greater than 0.  
 
 ```{r computing_ratios,echo=FALSE,include=FALSE}
 rescale.f = 1000000
@@ -194,10 +195,32 @@ mcmcCoda = genMCMC.hierarchical( data=data , xName=xName , yName=yName , sName=s
 
 
 mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+
+# computing difference 
 probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
 IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
 output_ratiod_diff =  data.frame(IDs,summary(mcmcCoda)$stat[10:18,1],summary(mcmcCoda)$quant[10:18,c(1,5)], probabilities)
 names(output_ratiod_diff) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at low saturation
+
+probabilities=apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
+output_Predominace_low = data.frame(IDs,summary(mcmcCoda)$stat[1:9,1],summary(mcmcCoda)$quant[1:9,c(1,5)], probabilities)
+names(output_Predominace_low) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at High saturation
+
+muHigh <- mcmcMat[,2:10]+mcmcMat[,11:19]
+probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh = matrix( , nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh[m,] <- quantile(muHigh[,m],c(.025,.975))
+}
+
+meanHigh <- summary(mcmcCoda)$stat[1:9,1] + summary(mcmcCoda)$stat[10:18,1]
+output_Predominace_high = data.frame(IDs,meanHigh,QuantHigh, probabilities)
+names(output_Predominace_high) <-c("ID","mean","lowCI", "highCI","prob.")
+
 ```
 
 The results are presented in the table below.  The table suggests that this is a real effect for five subjects (ZK, AJ, ML, AB, MA). In these
@@ -234,49 +257,11 @@ htmlTable(txtRound(output,3), align="ccccc",
 ```
 
 
-
-Now compute the mean of the mean predominance of grouped percepts seperately in two different saturation levels.
-
-```{r  Predominance_Separate_Saturation_Distr, cache=TRUE, include=FALSE}
-
-# Next we compute the means ------------------------------------ 
-
-source("ModelMeans_hierarchical.R")
-
-#Split data across conditions
-
-y1.low <- data.ratios[data.ratios$Sat== 0.4,]
-y1.high <- data.ratios[data.ratios$Sat == 0.9,]
-
-
-outputData <- data.frame(ID=c(), Sat=c(), meanPar = c()  )
-
-yName = "ratio"
-sName = "ID"
-
-#Fit to a t distribution - high.  Details can be found in ModelMeans_hierarchical
-mcmc_means_low = genMCMC( data=y1.low, yName=yName , sName=sName ,numSavedSteps=500000  )
-mcmc_means_high = genMCMC( data=y1.high, yName=yName , sName=sName ,numSavedSteps=500000  )
-
-mcmcMat = as.matrix(mcmc_means_low,chains=TRUE)
-probabilities = apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
-IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
-output_means_low =  data.frame(IDs,summary(mcmc_means_low)$stat[1:9,1],summary(mcmc_means_low)$quant[1:9,c(1,5)],probabilities)
-
-names(output_means_low)<-c("ID","mean","lowCI", "highCI","prob")
-
-mcmcMat = as.matrix(mcmc_means_high,chains=TRUE)
-probabilities = apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
-output_means_high =  data.frame(IDs,summary(mcmc_means_high)$stat[1:9,1],summary(mcmc_means_high)$quant[1:9,c(1,5)],probabilities)
-names(output_means_high)<-c("ID","mean","lowCI", "highCI","prob")
-
-```
-
 The resulting data is shown in the figure below
 ```{r Predominance_separate_sat_fig1,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh <- output_means_high
+outputHigh <- output_Predominace_high
 outputHigh$ID <- as.character(outputHigh$ID)
 is.num <- sapply(outputHigh, is.numeric)
 outputHigh[is.num] <- lapply(outputHigh[is.num], round,digits=3)
@@ -287,7 +272,7 @@ for (i in c(2:5)){
 }
 
 
-outputLow <- output_means_low
+outputLow <- output_Predominace_low
 outputLow$ID <- as.character(outputLow$ID)
 is.num <- sapply(outputLow, is.numeric)
 outputLow[is.num] <- lapply(outputLow[is.num], round,digits=3)
@@ -366,11 +351,6 @@ source("HierarchicalModel_Ratios.R")
 source("DBDA2E-utilities.R") # Must be in R's current working directory.
 require(rjags)
 
-results.singleBayes<-matrix(0,nrow=9,ncol=5)
-colnames(results.singleBayes)<-c("ID","mean","low CI","high CI","Probability")
-results.fusedBayes<-matrix(0,nrow=9,ncol=5)
-colnames(results.fusedBayes)<-c("ID","mean","low CI","high CI","Probability")
-
 data <- dataInTable
 data1 <- data[data$Tdata.perc > 0,]
 
@@ -404,8 +384,8 @@ names(combined.single) <- c("number","duration","subject")
 combined.fused = data.frame(x1f,y1f,y1f.subject)
 names(combined.fused) <- c("number","duration","subject")
 
-mcmc.single = genMCMC.hierarchical( data=combined.single , xName="number" , yName="duration", sName = "subject" ,numSavedSteps=20000  )
-mcmc.fused = genMCMC.hierarchical( data=combined.fused , xName="number" , yName="duration", sName = "subject" , numSavedSteps=20000 )
+mcmc.single = genMCMC.hierarchical( data=combined.single , xName="number" , yName="duration", sName = "subject" ,numSavedSteps=50000  )
+mcmc.fused = genMCMC.hierarchical( data=combined.fused , xName="number" , yName="duration", sName = "subject" , numSavedSteps=50000 )
 
 
 mcmcMat.s = as.matrix(mcmc.single,chains=TRUE)
@@ -417,10 +397,49 @@ mcmcMat.f = as.matrix(mcmc.fused,chains=TRUE)
 probabilities.fused = apply(mcmcMat.f[,11:19], 2, function(x) sum(x>0)/length(x))
 output.fused =  data.frame(IDs,summary(mcmc.fused)$stat[10:18,1],summary(mcmc.fused)$quant[10:18,c(1,5)], probabilities.fused)
 names(output.fused)=c("ID", "mean","lowCI","highCI","prob.")
+
+
+# output single mean low 
+
+output_singleDom_low = data.frame(IDs,summary(mcmc.single)$stat[1:9,1],summary(mcmc.single)$quant[1:9,c(1,5)])
+names(output_singleDom_low) <-c("ID","mean","lowCI", "highCI")
+
+# output single mean high
+
+muHigh_single <- mcmcMat.s[,2:10]+mcmcMat.s[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_single = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_single[m,] <- quantile(muHigh_single[,m],c(.025,.975))
+}
+
+meanHigh_single  <- summary(mcmc.single)$stat[1:9,1] + summary(mcmc.single)$stat[10:18,1]
+output_singleDom_high = data.frame(IDs,meanHigh_single,QuantHigh_single)
+names(output_singleDom_high) <-c("ID","mean","lowCI", "highCI")
+
+# output fused mean low 
+
+output_fusedDom_low = data.frame(IDs,summary(mcmc.fused)$stat[1:9,1],summary(mcmc.fused)$quant[1:9,c(1,5)])
+names(output_fusedDom_low) <-c("ID","mean","lowCI", "highCI")
+
+# output fused mean high
+
+muHigh_fused <- mcmcMat.f[,2:10]+mcmcMat.f[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_fused = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_fused[m,] <- quantile(muHigh_fused[,m],c(.025,.975))
+}
+
+meanHigh_fused  <- summary(mcmc.fused)$stat[1:9,1] + summary(mcmc.fused)$stat[10:18,1]
+output_fusedDom_high = data.frame(IDs,meanHigh_fused,QuantHigh_fused)
+names(output_fusedDom_high) <-c("ID","mean","lowCI", "highCI")
+
 ```
 
-The following table shows the probability for the difference in the mean duration of the single eye percept reports and grouped percept reports in the low and high saturation conditions separately. A negative value indicates a decrease.
-Six subjects, including all five who showed an increased ratios of observing grouped percepts demonstrate a decreased fraction of reports of single-eye percepts with probability larger than 0.9. Comparing with the single-eye dominance duration, grouped percept dominance duration show much less variations. Only three subjects, AB, FG and ZM, showed a probable decrease in duration with an increase change in color saturation with probability 0.9.  
+The following table shows the inferred mean difference in the dominance duration of single eye percept and grouped percepts across the low and high saturation conditions separately. A negative value indicates a decrease in the duration from the low to the high saturation condition.
+Six subjects, including all five who showed an increased ratios of observing grouped percepts show a decrease in mean dominance duration of single-eye percepts with probability larger than 0.9. Comparing with the single-eye dominance duration, grouped percept dominance duration show less change. There was no evidence of a probable change in mean dominance duration of grouped percept for any subject.
+
 
 ```{r single_Dom_duration_Bayesian_linear_fit_result_in_table, results="asis", echo=FALSE}
 library(htmlTable)
@@ -476,63 +495,14 @@ htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
 
 
 
-```{r  Dominance_single_Separate_Saturation_Distr, cache=TRUE, include=FALSE}
-
-# Next we compute the means for single ------------------------------------ 
-rescale.f = 1000000
-
-source("ModelMeans_hierarchical.R")
-source("DBDA2E-utilities.R") # Must be in R's current working directory.
-require(rjags)               # Must have previously installed package rjags.
-
-# Load the data:
-dataInTable <- read.csv('dataInOneTable.csv')   # Read data file; must be in curr. work. dir.
-data <- dataInTable
-
-results.singleLow<-matrix(0,nrow=9,ncol=4)
-colnames(results.singleLow)<-c("ID","mean","low CI","high CI")
-
-results.singleHigh<-matrix(0,nrow=9,ncol=4)
-colnames(results.singleHigh)<-c("ID","mean","low CI","high CI")
-
-data1 <- data[data$Tdata.perc > 0,]
-
-y1s.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
-y1s.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$Tdata.duration/rescale.f
-y1s.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
-y1s.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 1 |  data1$Tdata.perc == 2),]$IDs
-
-#y1s = c( y1s.low , y1s.high ) # combine data into one vector
-y1sLow = cbind(y1s.low, y1s.low.subj)
-y1sHigh = cbind(y1s.high, y1s.high.subj)
-
-singleLow = as.data.frame(y1sLow)
-singleHigh = as.data.frame(y1sHigh)
-
-names(singleLow) <- c("duration","subject")
-#combined.fused = data.frame(x1f,y1f,y1f.subject)
-names(singleHigh) <- c("duration","subject")
-mcmc.singleLow = genMCMC( data=singleLow, yName="duration", sName = "subject" ,numSavedSteps=20000  )
-mcmc.singleHigh = genMCMC( data=singleHigh, yName="duration", sName = "subject" ,numSavedSteps=20000  )
-
-
-ID_order <- c("AB", "AJ","FG","MA","ML","ND","YW","ZK","ZM")
-output.singleLow =  cbind(ID_order,summary(mcmc.singleLow)$stat[1:9,1],summary(mcmc.singleLow)$quant[1:9,c(1,5)])
-
-rownames(output.singleLow) <- NULL
-output.singleHigh =  cbind(ID_order,summary(mcmc.singleHigh)$stat[1:9,1],summary(mcmc.singleHigh)$quant[1:9,c(1,5)])
-rownames(output.singleHigh) <- NULL
-
-```
-
 
 ```{r Dominance_single_sat_fig2,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh1 <- as.data.frame(output.singleHigh)
+outputHigh1 <- as.data.frame(output_singleDom_high)
 names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
 
-outputLow1 <- as.data.frame(output.singleLow)
+outputLow1 <- as.data.frame(output_singleDom_low)
 names(outputLow1) <- c("ID","mean","lowCI", "highCI")
 
 outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
@@ -559,46 +529,14 @@ ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=p
 
 
 
-```{r Dominance_fused_separate_distr,cache=TRUE, include=FALSE}
-results.fusedLow<-matrix(0,nrow=9,ncol=4)
-colnames(results.fusedLow)<-c("ID","mean","low CI","high CI")
-
-results.fusedHigh<-matrix(0,nrow=9,ncol=4)
-colnames(results.fusedHigh)<-c("ID","mean","low CI","high CI")
-
-
-y1f.low <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
-y1f.high <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$Tdata.duration/rescale.f
-y1f.low.subj <- data1[data1$Sat == 0.4 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
-y1f.high.subj <- data1[data1$Sat == 0.9 & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4),]$IDs
-
-y1fLow = cbind( y1f.low, y1f.low.subj) 
-y1fHigh = cbind( y1f.high, y1f.high.subj)
-
-fusedLow = as.data.frame(y1fLow)
-fusedHigh = as.data.frame(y1fHigh)
-
-names(fusedLow) <- c("duration", "subject")
-names(fusedHigh) <- c("duration", "subject")
-mcmc.fusedLow = genMCMC( data=fusedLow, yName="duration", sName = "subject" , numSavedSteps=20000 )
-mcmc.fusedHigh = genMCMC( data=fusedHigh,  yName="duration", sName = "subject" , numSavedSteps=20000 )
-
-
-results.fusedLow =  cbind(ID_order,summary(mcmc.fusedLow)$stat[1:9,1],summary(mcmc.fusedLow)$quant[1:9,c(1,5)])
-
-results.fusedHigh =  cbind(ID_order,summary(mcmc.fusedHigh)$stat[1:9,1],summary(mcmc.fusedHigh)$quant[1:9,c(1,5)])
-
-```
-
-
 
 ```{r Dominance_fused,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh1 <- as.data.frame(results.fusedHigh)
+outputHigh1 <- as.data.frame(output_fusedDom_high)
 names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
 
-outputLow1 <- as.data.frame(results.fusedLow)
+outputLow1 <- as.data.frame(output_fusedDom_low)
 names(outputLow1) <- c("ID","mean","lowCI", "highCI")
 
 outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
@@ -624,9 +562,9 @@ ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=p
 
 
 ### Increasing saturation level increases ratios of the number of visits to grouped percepts.
-We next use the same data as above compute ratios of the number of visits to grouped percepts.
+We next use the same data as above to compute ratios of the number of visits to grouped percepts.
 
- $$\frac{N_{\rm grouped}}{N_{\rm grouped} + N_{\rm single_eye}}$$
+ $$\frac{N_{\rm grouped}}{N_{\rm grouped} + N_{\rm single-eye}}$$
 
 ```{r computing_ratios_num_visits_grouped_percept, cache=TRUE,include=FALSE}
 # loading data in csv file.
@@ -702,8 +640,26 @@ mcmcMat = as.matrix(mcmc.grouped.visists,chains=TRUE)
 #Probablity that visits to grouped percepts increase
 probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
 output_ratiod_grouped=  data.frame(IDs,summary(mcmc.grouped.visists)$stat[10:18,1],summary(mcmc.grouped.visists)$quant[10:18,c(1,5)], probabilities)
-
 names(output_ratiod_grouped)=c("ID","mean","lowCI","highCI","prob.")
+
+# output mean low 
+
+output_low = data.frame(IDs,summary(mcmc.grouped.visists)$stat[1:9,1],summary(mcmc.grouped.visists)$quant[1:9,c(1,5)])
+names(output_low) <-c("ID","mean","lowCI", "highCI")
+
+# output mean high
+
+muHigh <- mcmcMat[,2:10]+mcmcMat[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh[m,] <- quantile(muHigh[,m],c(.025,.975))
+}
+
+meanHigh <- summary(mcmc.grouped.visists)$stat[1:9,1] + summary(mcmc.grouped.visists)$stat[10:18,1]
+output_high = data.frame(IDs,meanHigh,QuantHigh)
+names(output_high) <-c("ID","mean","lowCI", "highCI")
+
 ```
 
 Based on these ratios, we compute the mean for each 
@@ -758,49 +714,15 @@ xtable(tryOutput,digits=c(2,2,2,2,2,3))
 
 
 
-```{r Bayesian_Analysis_numberVisits_Ratio_Separate_Saturation, include=FALSE,cache=TRUE}
-data.ratios <- read.csv('ratios_numberVisits_to_grouped.csv')
-names(data.ratios) <- c("ID","Sat","ratio")
-
-library(rjags)
-source("ModelMeans_hierarchical.R")
-
-
-dataHigh <- data.ratios[data.ratios$Sat==0.9,]
-dataLow <- data.ratios[data.ratios$Sat==0.4,]
-
-
-for (j in c(1:2)){
-  if (j==1){
-    data<-dataHigh
-  }else{
-    data<-dataLow
-  }
-  
-  mcmc.grouped.visists = genMCMC( data=data , yName="ratio", sName="ID" ,
-                                  numSavedSteps=50000 )
-  
-  if (j==1){
-    output_High <-  cbind(ID_order,summary(mcmc.grouped.visists)$stat[1:9,1],summary(mcmc.grouped.visists)$quant[1:9,c(1,5)])
-    colnames(output_High)<-c("ID", "mean", "lowCI","highCI")
-    row.names(output_High)<-NULL
-  }else{
-    output_Low <-  cbind(ID_order,summary(mcmc.grouped.visists)$stat[1:9,1],summary(mcmc.grouped.visists)$quant[1:9,c(1,5)])
-    colnames(output_Low)<-c("ID", "mean", "lowCI","highCI")
-    row.names(output_High)<-NULL
-  }
-}
-```
-
 
 
 ```{r result_bayesian_num_visits_ratio_separate_sat_in_fig,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh1 <- as.data.frame(output_High)
+outputHigh1 <- as.data.frame(output_high)
 names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
 
-outputLow1 <- as.data.frame(output_Low)
+outputLow1 <- as.data.frame(output_low)
 names(outputLow1) <- c("ID","mean","lowCI", "highCI")
 
 outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
@@ -832,14 +754,22 @@ we classified percepts into two states: single-eye, S, corresponding to percepts
 grouped, G, corresponding to percepts 3 and 4. For each trial, we converted the data into two
 binary data sequences: One sequence contained all transitions from state S with transitions
 from S to S denoted by 1, and from S to G by 0. The second sequence contained transitions
-from G, those from G to G denoted by 1, and from G to S by 0. We used all data obtained
-by each subject in a given condition (low/high color saturation) to estimate the transition
-probability from S to S, and from G to G by fitting a hierachical binomial model
-for the transition probability. See ModelTransitionDiff_hierachical.R for more detail.
+from G, those from G to G denoted by 1, and from G to S by 0. We used data obtained from all
+subjecst in a given condition (low/high color saturation) to estimate the transition
+probability from S to S, and from G to G by fitting a hierachical binomial model.
+The model is specified by
+\begin{align}
+& y_{ij} \sim \text{Bernoulli}(p_{ij}) \nonumber \\
+& p_{ij} = \theta_{0j}+ \theta_{1j}\,{x_{ij}} \label{eqn:iden2} \\
+& \theta_{0j}\sim \text{Beta}(\omega*(\kappa-2)+1, (1-\omega)*(\kappa-2)+1)), \, \theta_{1j}\sim \text{Normal}(\theta_1, \tau_1^2) \nonumber
+\end{align} 
+ where $x_{ij}$ is the color saturation indicator (1 for $0.9$, 0 for $0.4$).  We used vague priors: a 
+ uniform prior on the interval $[0,1]$ for the mode, $\omega$, and a Gamma prior with rate and shape both equal to 0.01 for the concentration parameter, $\kappa$. Prior distributions for the overall saturation effects $\theta_1$ was independent of these, and normal with mean 0, and variance $10^4$. We used Uniform(0, 100) prior for the standard deviation of the random effect $\tau_1$. 
+
   
 
 ```{r transition_diff_linear_fit, include=FALSE, cache=TRUE}
-source("ModelTransitionDiff_hierarchical.R")
+
 dataInTable <- read.csv('dataInOneTable.csv')
   data <- dataInTable
   # transtion binary single-to-single
@@ -918,7 +848,7 @@ for (subject in levels(data$IDs)){
       ssAll.low<-ssAll
       ggAll.low<-ggAll
     }
-  } # end of q loop -- gone through two satuation loop.
+  } # end of q loop -- gone through two saturation loop.
   ysingle<-c(ssAll.low, ssAll.high)
   xsingle<-c(rep(0, length(ssAll.low)), rep(1, length(ssAll.high)))
   subj <- c(rep(subject, length(ysingle)))
@@ -932,24 +862,62 @@ for (subject in levels(data$IDs)){
   grouped.trans<-rbind(grouped.trans, combined.grouped)
 }# end of subject loop
 
-source("ModelTransitionDiff_hierarchical.R")
+source("ModelTransitionDiff_hierarchical2.R")
 
 # compute for single-to singles
 names(single.trans)<-c("number","trans","subject")
-mcmctrans_single = genMCMC_trans( data=single.trans , xName="number", yName="trans", sName= "subject" ,numSavedSteps=500000)
+mcmctrans_single = genMCMC_trans( data=single.trans , xName="number", yName="trans", sName= "subject" ,numSavedSteps=50000, thinSteps=15)
 
 names(grouped.trans)<-c("number","trans","subject")
-mcmctrans_grouped = genMCMC_trans( data = grouped.trans , xName="number", yName="trans",  sName = "subject"  ,numSavedSteps=500000)
+mcmctrans_grouped = genMCMC_trans( data = grouped.trans , xName="number", yName="trans",  sName = "subject"  ,numSavedSteps=50000,thinSteps=15)
 
 mcmcMat.s = as.matrix(mcmctrans_single,chains=TRUE)
 probabilities.single = apply(mcmcMat.s[,11:19], 2, function(x) sum(x<0)/length(x))
-output.single =  data.frame(ID_order,summary(mcmctrans_single)$stat[10:18,1],summary(mcmctrans_single)$quant[10:18,c(1,5)], probabilities.single)
+output.single =  data.frame(IDs,summary(mcmctrans_single)$stat[10:18,1],summary(mcmctrans_single)$quant[10:18,c(1,5)], probabilities.single)
 names(output.single)<-c("ID","mean","lowCI","highCI","prob")
 
 mcmcMat.f = as.matrix(mcmctrans_grouped,chains=TRUE)
 probabilities.fused = apply(mcmcMat.f[,11:19], 2, function(x) sum(x>0)/length(x))
-output.fused =  data.frame(ID_order,summary(mcmctrans_grouped)$stat[10:18,1],summary(mcmctrans_grouped)$quant[10:18,c(1,5)], probabilities.fused)
+output.fused =  data.frame(IDs,summary(mcmctrans_grouped)$stat[10:18,1],summary(mcmctrans_grouped)$quant[10:18,c(1,5)], probabilities.fused)
 names(output.fused)<-c("ID","mean","lowCI","highCI","prob")
+
+# output single low 
+
+output_single_low = data.frame(IDs,summary(mcmctrans_single)$stat[1:9,1],summary(mcmctrans_single)$quant[1:9,c(1,5)])
+names(output_single_low) <-c("ID","mean","lowCI", "highCI")
+
+# output single mean high
+
+muHigh_single <- mcmcMat.s[,2:10]+mcmcMat.s[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_single = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_single[m,] <- quantile(muHigh_single[,m],c(.025,.975))
+}
+
+meanHigh_single  <- summary(mcmctrans_single)$stat[1:9,1] + summary(mcmctrans_single)$stat[10:18,1]
+output_single_high = data.frame(IDs,meanHigh_single,QuantHigh_single)
+names(output_single_high) <-c("ID","mean","lowCI", "highCI")
+
+# output fused mean low 
+
+output_fused_low = data.frame(IDs,summary(mcmctrans_grouped)$stat[1:9,1],summary(mcmctrans_grouped)$quant[1:9,c(1,5)])
+names(output_fused_low) <-c("ID","mean","lowCI", "highCI")
+
+# output fused mean high
+
+muHigh_fused <- mcmcMat.f[,2:10]+mcmcMat.f[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_fused = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_fused[m,] <- quantile(muHigh_fused[,m],c(.025,.975))
+}
+
+meanHigh_fused  <- summary(mcmctrans_grouped)$stat[1:9,1] + summary(mcmctrans_grouped)$stat[10:18,1]
+output_fused_high = data.frame(IDs,meanHigh_fused,QuantHigh_fused)
+names(output_fused_high) <-c("ID","mean","lowCI", "highCI")
+
+
 ```
 
 The results presented in the table below show that six of the subjects (ZK,AB,AJ, ML, MA,ZM) show a decrease in single-eye to single-eye transition with probability higher than 0.87 and  four of these (ZK,AB,AJ, ML) also show an increase in grouped-to-grouped transitions with probability higher than 0.9. This subset again belongs to those that experienced an increased predominance of grouped percepts with an increase in color saturation. 
@@ -1012,136 +980,12 @@ xtable(resultsAll,digits=c(2,2,2,2,2,3,2,2,2,2,3))
 
 
 
-The following figure shows the distributions of means at each saturation level for each subject seperately.
-
-```{r transition_separate, include=FALSE, cache=TRUE}
-source("ModelTransitionMean_hierarchical.R")
-dataInTable <- read.csv('dataInOneTable.csv')
-  data <- dataInTable
-  # transtion binary single-to-single
-  NAs <- rep(NA,10000)
-single.transLow <- data.frame( y= integer(0), subj = character(0))
-single.transHigh <- data.frame( y= integer(0), subj = character(0))
-grouped.transLow <- data.frame(y= integer(0), subj = character(0))
-grouped.transHigh <- data.frame(y= integer(0), subj = character(0))
-
-for (subject in levels(data$IDs)){
-  data.subj <- data[data$IDs==subject,] 
-  data.subj = data.frame(data.subj$nTrial,data.subj$Tdata.perc,data.subj$Sat)
-  names(data.subj) = c("Trial","Percept","Sat")
-  # Keep only recorded percepts 
-  data.subj = data.subj[data.subj$Percept>0,]
-  # Seperate data by saturation.
-  dataHigh <- data.subj[data.subj$Sat==0.9,]
-  dataLow <-data.subj[data.subj$Sat==0.4,]
-  # transtion binary single-to-single
-  NAs <- rep(NA,10000)
-  
-  for (q in c(1:2)){
-    if (q==1){
-      # Deal with the data with high saturation level.
-      Data_trials <- split(dataHigh, dataHigh$Trial)
-    }else{
-      # Deal with the data with low saturation level.
-      Data_trials <- split(dataLow, dataLow$Trial)
-    }
-    
-    #Data_trials <- split(dataHigh, dataHigh$Trial)
-    nTrials <- length(Data_trials)
-    singleN <- 0
-    groupedN <- 0
-    #ssAll <- data.frame(transition=NAs)
-    #ggAll <- data.frame(transition=NAs)
-    ssAll <- NAs
-    ggAll <- NAs
-    # run through all trials and for each trial we need to find the transition
-    for (i in c(1:nTrials) ){
-      dataOneTrial <- Data_trials[[i]]
-      len <- length(dataOneTrial$Percept)
-      for (j in c(1:(len-1))){
-        #print(j)
-        curP <- dataOneTrial$Percept[j]
-        nextP <- dataOneTrial$Percept[j+1]
-        #print(curP)
-        #print(nextP)
-        if (curP==1 | curP==2){
-          singleN <- singleN +1
-          if (nextP==1 | nextP==2){
-            ssAll[singleN]<- 1
-          }else{
-           ssAll[singleN]<- 0
-          }
-        }else{
-          groupedN <- groupedN +1
-          if (nextP==3 | nextP==4){
-            #ggAll$transition[groupedN]<- 1
-            ggAll[groupedN]<- 1
-          }else{
-            #ggAll$transition[groupedN]<- 0
-            ggAll[groupedN]<- 0
-          }
-        }
-      }# end of go through one trial
-    } # end of the loop of all trials
-    
-    # Analyze the data of ssAll and ggAll
-    ssAll <- ssAll[c(1:singleN)]
-    ggAll <- ggAll[c(1:groupedN)]
-    
-    if (q==1){
-      ssAll.high<-ssAll
-      ggAll.high<-ggAll
-    }else{
-      ssAll.low<-ssAll
-      ggAll.low<-ggAll
-    }
-  } # end of q loop -- gone through two satuation loop.
-  subj <- c(rep(subject, length(ssAll.high)))
-  combined.singleHigh<- data.frame(ssAll.high,subj)
-  single.transHigh<-rbind(single.transHigh, combined.singleHigh)
-  
-  subj <- c(rep(subject, length(ssAll.low)))
-  combined.singleLow<- data.frame(ssAll.low,subj)
-  single.transLow<-rbind(single.transLow, combined.singleLow)
-  
-  
-  subj <- c(rep(subject, length(ggAll.high)))
-  combined.grouped<- data.frame(ggAll.high,subj)
-  grouped.transHigh<-rbind(grouped.transHigh, combined.grouped)
-  
-  subj <- c(rep(subject, length(ggAll.low)))
-  combined.grouped<- data.frame(ggAll.low,subj)
-  grouped.transLow<-rbind(grouped.transLow, combined.grouped)
-}# end of subject loop
-
-
-# compute for single-to singles
-names(single.transLow)<-c("trans","subject")
-mcmctrans_singleLow = genMCMC_trans( data=single.transLow, yName="trans", sName= "subject" ,numSavedSteps=200000)
-output.singleLow =  data.frame(ID_order,summary(mcmctrans_singleLow)$stat[1:9,1],summary(mcmctrans_singleLow)$quant[1:9,c(1,5)])
-names(output.singleLow)=c("ID","mean","lowCI", "highCI")
-
-names(single.transHigh)<-c("trans","subject")
-mcmctrans_singleHigh = genMCMC_trans( data=single.transHigh, yName="trans", sName= "subject" ,numSavedSteps=200000)
-output.singleHigh =  data.frame(ID_order,summary(mcmctrans_singleHigh)$stat[1:9,1],summary(mcmctrans_singleHigh)$quant[1:9,c(1,5)])
-names(output.singleHigh)=c("ID","mean","lowCI", "highCI")
-
-names(grouped.transLow)<-c("trans","subject")
-mcmctrans_groupedLow = genMCMC_trans( data=grouped.transLow, yName="trans", sName= "subject" ,numSavedSteps=200000)
-output.groupedLow =  data.frame(ID_order,summary(mcmctrans_groupedLow)$stat[1:9,1],summary(mcmctrans_groupedLow)$quant[1:9,c(1,5)])
-names(output.groupedLow)=c("ID","mean","lowCI", "highCI")
-
-names(grouped.transHigh)<-c("trans","subject")
-mcmctrans_groupedHigh = genMCMC_trans( data=grouped.transHigh, yName="trans", sName= "subject" ,numSavedSteps=200000)
-output.groupedHigh =  data.frame(ID_order,summary(mcmctrans_groupedHigh)$stat[1:9,1],summary(mcmctrans_groupedHigh)$quant[1:9,c(1,5)])
-names(output.groupedHigh)=c("ID","mean","lowCI", "highCI")
-```
 
 ```{r transition_separateSS_sat_in_fig,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh1  <-cbind(output.singleHigh,Sat = c(rep(0.9,length(output.singleHigh$mean))))
-outputLow1  <-cbind(output.singleLow,Sat = c(rep(0.4,length(output.singleLow$mean))))
+outputHigh1  <-cbind(output_single_high,Sat = c(rep(0.9,length(output_single_high$mean))))
+outputLow1  <-cbind(output_single_low,Sat = c(rep(0.4,length(output_single_low$mean))))
 
   outputHigh1[,1] <- as.character(outputHigh1[,1])
   outputLow1[,1] <- as.character(outputLow1[,1])
@@ -1163,8 +1007,8 @@ ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=p
 ```{r transition_separateGG_sat_in_fig,results='asis',echo=FALSE}
 library(ggplot2)
 
-outputHigh1  <-cbind(output.groupedHigh,Sat = c(rep(0.9,length(output.groupedHigh$mean))))
-outputLow1  <-cbind(output.groupedLow,Sat = c(rep(0.4,length(output.groupedLow$mean))))
+outputHigh1  <-cbind(output_fused_high,Sat = c(rep(0.9,length(output_fused_high$mean))))
+outputLow1  <-cbind(output_fused_low,Sat = c(rep(0.4,length(output_fused_low$mean))))
 
   outputHigh1[,1] <- as.character(outputHigh1[,1])
   outputLow1[,1] <- as.character(outputLow1[,1])
