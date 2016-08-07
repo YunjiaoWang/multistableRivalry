@@ -8,7 +8,7 @@ date: "May 26, 2016"
 ## Description of experiments.
 Subjects viewed the stimulus depicted inthe figure below, each consisting of half a horizontal grating and half of a vertical grating.
 
-<img src="figures/inputpercept.jpeg" alt="Stimuli" height="300", width="400">
+<img src="figures/inputpercept.jpg" alt="Stimuli" height="300", width="400">
 
 In addition, grating halves were chosen randomly to be either red (HSV color space coordinates: 0.497, 0.4/0.9, 0.7) or green (120.23, 0.4/0.9, 0.7), but commensurate halves always had the same color. The stimulus was displayed on a grey background (0.0, 0.0, 0.2) and two unfilled squares and two horizontal and vertical lines were added on top of it in order to help the subject align the two images. Two different levels of saturation were used for each color, 0.4 and 0.9.
 
@@ -334,6 +334,323 @@ htmlTable(txtRound(resultsAll, digits=3), align="ccccc|ccccc",
 		  ctable=TRUE)
 
 ```
+
+### Predominance of grouped red
+
+```{r compuating_ratios,include=FALSE}
+dataInTable <- read.csv('dataInOneTable.csv')
+
+nTrials <- unique(dataInTable$nTrial)
+# set up a data frame to store dominance ratios (grouped/ (grouped + single))
+Red_ratios <- data.frame(ID = c(), Sat =c(), ratios=c())
+Green_ratios <- data.frame(ID = c(), Sat =c(), ratios=c())
+Data_trials <- split(dataInTable, dataInTable$nTrial)
+
+for (i in nTrials){
+  data <- Data_trials[[i]]
+  percept3 <- subset(data, data$Tdata.perc ==3) # red
+  percept4 <- subset(data, data$Tdata.perc ==4) # Green
+  All <- subset(data, data$Tdata.perc >0)
+  total <- sum(All$Tdata.duration)
+  preDom3 <- sum(percept3$Tdata.duration)/total
+  preDom4 <- sum(percept4$Tdata.duration)/total
+  
+  ID <- data$IDs[1]
+  Sat <- data$Sat[1]
+  newDataRed <- data.frame(ID = ID, Sat = Sat, Ratio = preDom3)
+  newDataGreen <- data.frame(ID = ID, Sat = Sat, Ratio = preDom4)
+ Red_ratios <- rbind(Red_ratios,newDataRed)
+ Green_ratios <- rbind(Green_ratios,newDataGreen)
+ 
+}
+
+names(Red_ratios)<- c("ID","Sat","ratio")
+names(Green_ratios)<- c("ID","Sat","ratio")
+```
+
+
+
+```{r Predominance_linear_fit_red, include=FALSE,cache=TRUE}
+# 
+rescale.f = 1000000
+
+# Load the functions used below:
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)  
+
+data <- Red_ratios
+data$ID <- as.numeric(Red_ratios$ID) 
+#data$ID <- as.character(data.ratios$ID) 
+data$Sat <- sapply(Red_ratios$Sat, function(x) if(x<0.5) {return(0)} else {return(1)})
+
+xName = "Sat"
+yName = "ratio"
+sName = "ID"
+
+# We first compute the difference between the ratios, and the probaibility
+# that it increases between conditions
+
+source("HierarchicalModel_Ratios.R")
+
+mcmcCoda = genMCMC.hierarchical( data=data , xName=xName , yName=yName , sName=sName ,
+                                 numSavedSteps=50000 , thinSteps=15 )
+
+
+
+  mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+
+# computing difference 
+probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
+IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
+output_ratiod_diff =  data.frame(IDs,summary(mcmcCoda)$stat[10:18,1],summary(mcmcCoda)$quant[10:18,c(1,5)], probabilities)
+names(output_ratiod_diff) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at low saturation
+
+probabilities=apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
+output_Predominace_low = data.frame(IDs,summary(mcmcCoda)$stat[1:9,1],summary(mcmcCoda)$quant[1:9,c(1,5)], probabilities)
+names(output_Predominace_low) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at High saturation
+
+muHigh <- mcmcMat[,2:10]+mcmcMat[,11:19]
+probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh = matrix( , nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh[m,] <- quantile(muHigh[,m],c(.025,.975))
+}
+
+meanHigh <- summary(mcmcCoda)$stat[1:9,1] + summary(mcmcCoda)$stat[10:18,1]
+output_Predominace_high = data.frame(IDs,meanHigh,QuantHigh, probabilities)
+names(output_Predominace_high) <-c("ID","mean","lowCI", "highCI","prob.")
+ID_order1 <-c("ZK", "AJ", "ML", "AB", "MA", "ND", "ZM", "FG", "YW")
+```
+
+We use the same Bayesian models for grouped red precepts and the results are shown below
+
+```{r red_linear_fit_in_table, results="asis",echo=FALSE}
+library(htmlTable)
+output <-output_ratiod_diff
+output$ID<- as.character(output$ID)
+
+output <- output[match(ID_order1, output$ID),]
+is.num <- sapply(output, is.numeric)
+output[is.num] <- lapply(output[is.num], round,digits=3)
+for (i in c(1:9)){
+  if (output[i,5]>0.999){
+    output[i,5] <-0.999
+  }
+}
+
+for (i in c(2:4)){
+  output[,i]<- round(output[,i], digits=3)
+}
+
+
+htmlTable(txtRound(output,3), align="ccccc",
+		 header=paste(c("ID", "<sup>a</sup>diff.", "low CI", "high CI ", "prob."),"&nbsp;"),
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  #rowlabel="",
+		  rnames=FALSE,
+		  caption="Predominance of all Red",
+		  tfoot="<sup>a</sup>diff. = mean at saturation 0.9 - mean at saturation 0.4 ",
+		  ctable=TRUE)
+
+```
+
+```{r Predominance_separate_sat_fig_red,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh <- output_Predominace_high
+outputHigh$ID <- as.character(outputHigh$ID)
+is.num <- sapply(outputHigh, is.numeric)
+outputHigh[is.num] <- lapply(outputHigh[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputHigh[,i]<- round(outputHigh[,i], digits=3)
+}
+
+
+outputLow <- output_Predominace_low
+outputLow$ID <- as.character(outputLow$ID)
+is.num <- sapply(outputLow, is.numeric)
+outputLow[is.num] <- lapply(outputLow[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputLow[,i]<- round(outputLow[,i], digits=3)
+}
+
+
+outputHigh  <-cbind(outputHigh,Sat = c(rep(0.9,length(outputHigh$mean))))
+outputLow  <-cbind(outputLow,Sat = c(rep(0.4,length(outputLow$mean))))
+
+outputAll <- rbind(outputHigh,outputLow)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Predominance of all red")
+
+```
+
+
+### Predominance of grouped green
+We next analyze the effect of color saturation on predominance of 
+grouped green by using the same Bayesian method.
+
+```{r Predominance_linear_fit_green, include=FALSE,cache=TRUE}
+# 
+rescale.f = 1000000
+
+# Load the functions used below:
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)  
+
+results.Bayes<-matrix(NA,nrow=9,ncol=3)
+colnames(results.Bayes)<-c("mean","loCI","upCI")
+diffmeans <- c(1:9)
+prob = c(1:9)
+data <- Green_ratios
+data$ID <- as.numeric(Green_ratios$ID) 
+#data$ID <- as.character(data.ratios$ID) 
+data$Sat <- sapply(Green_ratios$Sat, function(x) if(x<0.5) {return(0)} else {return(1)})
+
+xName = "Sat"
+yName = "ratio"
+sName = "ID"
+
+# We first compute the difference between the ratios, and the probaibility
+# that it increases between conditions
+
+source("HierarchicalModel_Ratios.R")
+
+mcmcCoda = genMCMC.hierarchical( data=data , xName=xName , yName=yName , sName=sName ,
+                                 numSavedSteps=50000 , thinSteps=15 )
+
+
+
+  mcmcMat = as.matrix(mcmcCoda,chains=TRUE)
+
+# computing difference 
+probabilities = apply(mcmcMat[,11:19], 2, function(x) sum(x>0)/length(x))
+IDs <- c("AB", "AJ","FG", "MA","ML", "ND","YW","ZK","ZM")
+output_ratiod_diff_green =  data.frame(IDs,summary(mcmcCoda)$stat[10:18,1],summary(mcmcCoda)$quant[10:18,c(1,5)], probabilities)
+names(output_ratiod_diff_green) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at low saturation
+
+probabilities=apply(mcmcMat[,2:10], 2, function(x) sum(x<0.5)/length(x))
+output_Predominace_low_green = data.frame(IDs,summary(mcmcCoda)$stat[1:9,1],summary(mcmcCoda)$quant[1:9,c(1,5)], probabilities)
+names(output_Predominace_low_green) <-c("ID","mean","lowCI", "highCI","prob.")
+
+# computing the distribution for mean of predominance at High saturation
+
+muHigh <- mcmcMat[,2:10]+mcmcMat[,11:19]
+probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh = matrix( , nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh[m,] <- quantile(muHigh[,m],c(.025,.975))
+}
+
+meanHigh <- summary(mcmcCoda)$stat[1:9,1] + summary(mcmcCoda)$stat[10:18,1]
+output_Predominace_high_green = data.frame(IDs,meanHigh,QuantHigh, probabilities)
+names(output_Predominace_high_green) <-c("ID","mean","lowCI", "highCI","prob.")
+```
+
+Results are shown below.
+
+```{r green_linear_fit_in_table, results="asis",echo=FALSE}
+library(htmlTable)
+output <-output_ratiod_diff_green
+output$ID<- as.character(output$ID)
+
+output <- output[match(ID_order1, output$ID),]
+is.num <- sapply(output, is.numeric)
+output[is.num] <- lapply(output[is.num], round,digits=3)
+for (i in c(1:9)){
+  if (output[i,5]>0.999){
+    output[i,5] <-0.999
+  }
+}
+
+for (i in c(2:4)){
+  output[,i]<- round(output[,i], digits=3)
+}
+
+
+htmlTable(txtRound(output,3), align="ccccc",
+		 header=paste(c("ID", "<sup>a</sup>diff.", "low CI", "high CI ", "prob."),"&nbsp;"),
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  #rowlabel="",
+		  rnames=FALSE,
+		  caption="Predominance of all Green",
+		  tfoot="<sup>a</sup>diff. = mean at saturation 0.9 - mean at saturation 0.4 ",
+		  ctable=TRUE)
+
+```
+
+
+```{r Predominance_separate_sat_fig_green,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh <- output_Predominace_high_green
+outputHigh$ID <- as.character(outputHigh$ID)
+is.num <- sapply(outputHigh, is.numeric)
+outputHigh[is.num] <- lapply(outputHigh[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputHigh[,i]<- round(outputHigh[,i], digits=3)
+}
+
+
+outputLow <- output_Predominace_low_green
+outputLow$ID <- as.character(outputLow$ID)
+is.num <- sapply(outputLow, is.numeric)
+outputLow[is.num] <- lapply(outputLow[is.num], round,digits=3)
+
+
+for (i in c(2:5)){
+  outputLow[,i]<- round(outputLow[,i], digits=3)
+}
+
+
+outputHigh  <-cbind(outputHigh,Sat = c(rep(0.9,length(outputHigh$mean))))
+outputLow  <-cbind(outputLow,Sat = c(rep(0.4,length(outputLow$mean))))
+
+outputAll <- rbind(outputHigh,outputLow)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Predominance of all Green")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Saturation level effects on dominance duration and number of visits
 We next examine whether this increase in the predominance of grouped percepts is due to an increase in the mean time of grouped percepts reports, a decrease in 
 the  mean time single eye percept reports, or an increased
@@ -559,6 +876,234 @@ ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=p
   ylab("Dominance Duration")+
   ggtitle("Grouped")
 ```
+
+
+#### Effect of color statuation on dominance of grouped red. 
+
+```{r Red_Green_Dominance_duration_linear_fit,, include=FALSE,cache=TRUE}
+# Next compare the difference in dominance duration times for all green, all red grouped percepts
+# across  the two conditions ------------------------------------ 
+
+source("HierarchicalModel_Ratios.R")
+source("DBDA2E-utilities.R") # Must be in R's current working directory.
+require(rjags)
+
+data <- dataInTable
+data1 <- data[data$Tdata.perc > 0,]
+
+
+### all green grouped percepts
+
+y1g.low <- data1[data1$Sat == 0.4 & data1$Tdata.perc ==4,]$Tdata.duration/rescale.f
+y1g.high <- data1[data1$Sat == 0.9 & data1$Tdata.perc ==4,]$Tdata.duration/rescale.f
+y1g.low.subj <- data1[data1$Sat == 0.4 & data1$Tdata.perc ==4, ]$IDs
+y1g.high.subj <- data1[data1$Sat == 0.9 & data1$Tdata.perc == 4, ]$IDs
+
+y1g = c( y1g.low , y1g.high ) # combine data into one vector
+y1g.subject = c( y1g.low.subj, y1g.high.subj )
+
+# create group membership code, 0 for low, 1 for high
+x1g = c( rep(0,length(y1g.low)) , rep(1,length(y1g.high)) )
+
+#same for red red state reports
+y1f.low <- data1[data1$Sat == 0.4 & data1$Tdata.perc == 3,]$Tdata.duration/rescale.f
+y1f.high <- data1[data1$Sat == 0.9 & data1$Tdata.perc ==3,]$Tdata.duration/rescale.f
+y1f.low.subj <- data1[data1$Sat == 0.4 & data1$Tdata.perc == 3,]$IDs
+y1f.high.subj <- data1[data1$Sat == 0.9 & data1$Tdata.perc == 3,]$IDs
+
+y1f = c( y1f.low , y1f.high ) 
+y1f.subject = c( y1f.low.subj, y1f.high.subj )
+
+x1f = c( rep(0,length(y1f.low)) , rep(1,length(y1f.high)) )
+
+
+# fit Bayesian model - comment out to run only linear model
+
+combined.green = data.frame(x1g,y1g,y1g.subject)
+names(combined.green) <- c("number","duration","subject")
+
+combined.red = data.frame(x1f,y1f,y1f.subject)
+names(combined.red) <- c("number","duration","subject")
+
+mcmc.green = genMCMC.hierarchical( data=combined.green , xName="number" , yName="duration", sName = "subject" ,numSavedSteps=50000  )
+
+mcmc.red = genMCMC.hierarchical( data=combined.red , xName="number" , yName="duration", sName = "subject" , numSavedSteps=50000 )
+
+
+
+
+mcmcMat.g = as.matrix(mcmc.green,chains=TRUE)
+probabilities.green = apply(mcmcMat.g[,11:19], 2, function(x) sum(x<0)/length(x))
+output.green =  data.frame(IDs,summary(mcmc.green)$stat[10:18,1],summary(mcmc.green)$quant[10:18,c(1,5)], probabilities.green)
+names(output.green)=c("ID", "mean","lowCI","highCI","prob.")
+
+
+
+mcmcMat.f = as.matrix(mcmc.red,chains=TRUE)
+probabilities.red = apply(mcmcMat.f[,11:19], 2, function(x) sum(x>0)/length(x)) ## increasing probability
+output.red =  data.frame(IDs,summary(mcmc.red)$stat[10:18,1],summary(mcmc.red)$quant[10:18,c(1,5)], probabilities.red)
+names(output.red)=c("ID", "mean","lowCI","highCI","prob.")
+
+
+
+
+# output green mean low 
+
+output_greenDom_low = data.frame(IDs,summary(mcmc.green)$stat[1:9,1],summary(mcmc.green)$quant[1:9,c(1,5)])
+names(output_greenDom_low) <-c("ID","mean","lowCI", "highCI")
+
+# output green mean high
+
+muHigh_green <- mcmcMat.g[,2:10]+mcmcMat.g[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_green = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_green[m,] <- quantile(muHigh_green[,m],c(.025,.975))
+}
+
+meanHigh_green  <- summary(mcmc.green)$stat[1:9,1] + summary(mcmc.green)$stat[10:18,1]
+output_greenDom_high = data.frame(IDs,meanHigh_green,QuantHigh_green)
+names(output_greenDom_high) <-c("ID","mean","lowCI", "highCI")
+
+# output red mean low 
+
+output_redDom_low = data.frame(IDs,summary(mcmc.red)$stat[1:9,1],summary(mcmc.red)$quant[1:9,c(1,5)])
+names(output_redDom_low) <-c("ID","mean","lowCI", "highCI")
+
+# output red mean high
+
+muHigh_red <- mcmcMat.f[,2:10]+mcmcMat.f[,11:19]
+#probabilities=apply(muHigh, 2, function(x) sum(x<0.5)/length(x))
+QuantHigh_red = matrix(0, nrow=9,ncol = 2)
+for (m in 1:9){
+  QuantHigh_red[m,] <- quantile(muHigh_red[,m],c(.025,.975))
+}
+
+meanHigh_red  <- summary(mcmc.red)$stat[1:9,1] + summary(mcmc.red)$stat[10:18,1]
+output_redDom_high = data.frame(IDs,meanHigh_red,QuantHigh_red)
+names(output_redDom_high) <-c("ID","mean","lowCI", "highCI")
+
+```
+
+The result on the dominance of all green is shown below
+
+```{r Green_Dom_duration_Bayesian_linear_fit_result_in_table, results="asis", echo=FALSE}
+library(htmlTable)
+
+
+
+### Green
+tryGreen <-output.green[match(ID_order1, output.green$ID),]
+
+tryGreen$ID <- as.character(tryGreen$ID)
+is.num <- sapply(tryGreen, is.numeric)
+#tryGreen[is.num] <- lapply(tryGreen[is.num], round,3)
+for (i in c(1:9)){
+  if( tryGreen[i,5]>0.999){
+    tryGreen[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  tryGreen[,i]<- round(tryGreen[,i], digits=3)
+}
+
+
+tryred <- output.red[match(ID_order1, output.red$ID),]
+
+tryred$ID <- as.character(tryred$ID)
+
+is.num <- sapply(tryred, is.numeric)
+#tryred[is.num] <- lapply(tryred[is.num], round,3)
+for (i in c(1:9)){
+  if( tryred[i,5]>0.999){
+    tryred[i,5] <- 0.999
+  }
+}
+for (i in c(2:4)){
+  tryred[,i]<- round(tryred[,i], digits=3)
+}
+resultsAll <- cbind(tryred[1:5],tryGreen[1:5])
+cgroup = c("Grouped red","Grouped green")
+n.cgroup = c(5, 5)
+#is.num <- sapply(resultsAll, is.numeric)
+#resultsAll[is.num] <- lapply(resultsAll[is.num], round,2)
+htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
+		  header=paste(c("ID", "diff.", "low CI", "high CI ","<sup>a</sup>D-prob.", "ID", "diff.", "low CI", "high CI","<sup>a</sup>prob."),"&nbsp;&nbsp; "),
+		  cgroup = cgroup,
+		   padding.tspanner="&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;",
+		  css.cgroup = "",
+		  n.cgroup = n.cgroup, 
+		  rnames=FALSE,
+		  caption="Effect of saturation level on dominance duration",
+		  tfoot="<sup>a</sup>D-prob. =Decreasing probability",
+		  ctable=TRUE)
+```
+
+```{r Dominance_red,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1 <- as.data.frame(output_redDom_high)
+names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
+
+outputLow1 <- as.data.frame(output_redDom_low)
+names(outputLow1) <- c("ID","mean","lowCI", "highCI")
+
+outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
+outputLow1  <-cbind(outputLow1,Sat = c(rep(0.4,length(outputLow1$mean))))
+for (i in c(2:5)){
+  outputHigh1[,i] <- as.numeric(as.character(outputHigh1[,i]))
+  outputLow1[,i] <- as.numeric(as.character(outputLow1[,i]))
+}
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("Grouped red")
+```
+
+```{r Dominance_green,results='asis',echo=FALSE}
+library(ggplot2)
+
+outputHigh1 <- as.data.frame(output_greenDom_high)
+names(outputHigh1) <- c("ID","mean","lowCI", "highCI")
+
+outputLow1 <- as.data.frame(output_greenDom_low)
+names(outputLow1) <- c("ID","mean","lowCI", "highCI")
+
+outputHigh1  <-cbind(outputHigh1,Sat = c(rep(0.9,length(outputHigh1$mean))))
+outputLow1  <-cbind(outputLow1,Sat = c(rep(0.4,length(outputLow1$mean))))
+for (i in c(2:5)){
+  outputHigh1[,i] <- as.numeric(as.character(outputHigh1[,i]))
+  outputLow1[,i] <- as.numeric(as.character(outputLow1[,i]))
+}
+outputAll <- rbind(outputHigh1,outputLow1)
+
+outputAll$Sat <- as.factor(outputAll$Sat)
+
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+
+ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("Grouped green")
+```
+
+
+
+
+
+
 
 
 ### Increasing saturation level increases ratios of the number of visits to grouped percepts.
@@ -972,11 +1517,7 @@ htmlTable(txtRound(resultsAll, digits=3), align="ccccc|cccc",
 
 ```
 
- 
-```{r latex_table_transition,include=FALSE}
-library(xtable)
-xtable(resultsAll,digits=c(2,2,2,2,2,3,2,2,2,2,3))
-```
+
 
 
 
@@ -1145,11 +1686,61 @@ for (subject in levels(data$IDs)){
 ```
 
 
+
+## Distribution of time duration without stable percept
+
+Now we check the duration of the these transition duration
+
+
+```{r compuating_duration_of_transition, echo=FALSE}
+library(MASS)
+dataInTable <- read.csv('dataInOneTable.csv')
+# Data is recorded in microcseconds. We use this factor to rescale to seconds
+rescale.f = 1000000
+
+# Make a plot of the dominance distribution for all subjects
+# restrict subject and only the percept conditions
+# 
+# You can run this with different subjects
+
+IDs <- unique(dataInTable$IDs)
+for (subject in IDs){
+  
+  data <- dataInTable[dataInTable$IDs == subject & dataInTable$Tdata.perc == 0, ]
+  
+  par(oma=c(2.3,2.3, 2.3, 2.3))
+  par(mfrow=c(1,2))
+  for (i in c(0.4,0.9)){
+    toplot <- data[data$Sat == i, ]
+    #Get it to the right timescale in seconds
+    toplot <- toplot$Tdata.duration/rescale.f
+    m = mean(toplot)
+    
+    #Fit gamma distribution using max likelihood, using function fitdistr
+   # fit <- fitdistr(toplot,"gamma", start=list(shape = 1, rate = 0.1),lower=0.001)
+    #shape = fit$estimate[[1]]
+    #scale = 1/fit$estimate[[2]]
+    
+    #plot histogram
+    hist(toplot, breaks=22, freq = FALSE, col = "blue",xlab=paste("Duration [s], mean=", round(m,2)), 
+         main= paste("Transition duration", i))         
+    # shape and scale obtained by 
+    #curve(dgamma(x, shape,  scale=scale), add=TRUE, col='darkblue', lwd=2)
+    
+  title(paste("Subject", subject), outer=TRUE)
+  }
+}
+
+```
+
+
 ## Frequency of individual percepts
 
 The following are the fraction that each percetp is reported of the individual percepts per subject. Is there any significant pattern here?
 
 ```{r Frequency_individual_perc, echo=FALSE, out.width = '300px', out.height = '300px'}
+
+data<- read.csv('dataInOneTable.csv')
 for (subject in levels(data$IDs)){
   
   data1 <- data[ data$IDs == subject & data$Tdata.perc != 0  , ]
