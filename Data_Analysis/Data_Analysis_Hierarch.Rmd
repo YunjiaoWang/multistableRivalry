@@ -1101,8 +1101,44 @@ ggplot(outputAll, aes(x=ID,y=mean,fill=Sat))+geom_bar(stat="identity",position=p
 
 
 
+```{r single_green_compare, results='asis',echo=FALSE}
+library(ggplot2)
+outputSingle <-output.single
+outputGreen <- output.green
+outputSingle <- cbind(outputSingle, perc = c(rep('single',length(outputSingle$mean))))
+outputGreen <- cbind(outputGreen, perc = c(rep('green',length(outputGreen$mean))))
+outputAll <- rbind(outputSingle, outputGreen)
+outputAll$perc <- as.factor(outputAll$perc)
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+
+ggplot(outputAll, aes(x=ID,y=mean,fill=perc))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("Difference")
+```
 
 
+```{r single_green_compare2, results='asis',echo=FALSE}
+library(ggplot2)
+outputSingle <-output.single
+outputGreen <- output.green
+outputSingle <- cbind(outputSingle, perc = c(rep('single',length(outputSingle$mean))))
+outputGreen <- cbind(outputGreen, perc = c(rep('green',length(outputGreen$mean))))
+outputAll <- rbind(outputSingle, outputGreen)
+outputAll$perc <- as.factor(outputAll$perc)
+outputAll$ID <- factor(outputAll$ID, levels=ID_order1)
+
+ggplot(outputAll, aes(x=ID,y=mean,fill=perc))+geom_bar(stat="identity",position=position_dodge(width=0.85))+geom_errorbar(aes(ymin=lowCI, ymax=highCI), width=.1, position=position_dodge(width=0.85))+
+  theme(text = element_text(size=20), axis.text = element_text(size=16))+
+        #panel.grid.major = element_line(colour = "grey95"),
+        #panel.background=element_rect(fill="white"))+
+  xlab("Subject")+
+  ylab("Dominance Duration")+
+  ggtitle("Difference")
+```
 
 
 
@@ -1611,14 +1647,14 @@ for (subject in levels(data$IDs)){
     #Get it to the right timescale in seconds
     toplot <- toplot$Tdata.duration/rescale.f
     m = mean(toplot)
-    
+    sdw =sd(toplot)
     #Fit gamma distribution using max likelihood, using function fitdistr
     fit <- fitdistr(toplot,"gamma", start=list(shape = 1, rate = 0.1),lower=0.001)
     shape = fit$estimate[[1]]
     scale = 1/fit$estimate[[2]]
     
     #plot histogram
-    hist(toplot, breaks=22, freq = FALSE, col = "blue",xlab=paste("Duration [s], mean=", round(m,2)), 
+    hist(toplot, breaks=22, freq = FALSE, col = "blue",xlab=paste("Duration [s], mean=", round(m,2),"sd=",round(sdw,2)), 
          main= paste("Single eye and sat", i))         
     # shape and scale obtained by 
     curve(dgamma(x, shape,  scale=scale), add=TRUE, col='darkblue', lwd=2)
@@ -1627,14 +1663,14 @@ for (subject in levels(data$IDs)){
     toplot <- subset(data1, data1$Sat == i & (data1$Tdata.perc == 3 |  data1$Tdata.perc == 4))
     toplot <- toplot$Tdata.duration/rescale.f
     m = mean(toplot)
-    
+    sdw = sd(toplot)
     #Fit gamma distribution using max likelihood
     fit <- fitdistr(toplot,"gamma",start=list(shape = 1, rate = 0.1),lower=0.001)
     shape = fit$estimate[[1]]
     scale = 1/fit$estimate[[2]]
     
     #plot histogram
-    hist(toplot, breaks=22, freq = FALSE, col = "blue", xlab=paste("Duration [s], mean=", round(m,2)),
+    hist(toplot, breaks=22, freq = FALSE, col = "blue", xlab=paste("Duration [s], mean=", round(m,2),"sd=",round(sdw,2)),
          main= paste("Grouped and sat", i) )        
     # shape and scale
     curve(dgamma(x, shape,  scale=scale), add=TRUE, col='darkblue', lwd=2)
